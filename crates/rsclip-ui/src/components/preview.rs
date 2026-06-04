@@ -51,9 +51,6 @@ pub(crate) fn render_secret_preview(state: &Rc<AppState>, secret: &SecretEntry) 
     state.ocr_button.set_opacity(0.0);
     state.ocr_button.set_sensitive(false);
 
-    let title = section_label(&secret.alias);
-    state.preview.append(&title);
-
     let buffer = gtk::TextBuffer::new(None);
     buffer.set_text(&masked_secret(&secret.value));
     let view = gtk::TextView::with_buffer(&buffer);

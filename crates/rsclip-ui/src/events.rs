@@ -60,6 +60,24 @@ fn connect_mode_buttons(state: &Rc<AppState>) {
     }
 }
 
+fn switch_view(state: &Rc<AppState>, view: AppView) {
+    if *state.view.borrow() == view {
+        return;
+    }
+
+    *state.view.borrow_mut() = view;
+    *state.query.borrow_mut() = String::new();
+    state.search_entry.set_text("");
+    state.search_entry.set_placeholder_text(Some(match view {
+        AppView::Clipboard => "Search clipboard...",
+        AppView::Secrets => "Search secrets by name...",
+    }));
+    update_mode_controls(state);
+    if let Err(err) = refresh_entries(state) {
+        set_footer(state, &format!("Switch failed: {err:#}"));
+    }
+}
+
 fn connect_ocr_button(state: &Rc<AppState>) {
     let button = state.ocr_button.clone();
     let state = Rc::clone(state);
@@ -166,6 +184,14 @@ fn connect_keyboard(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
 
             let ctrl = modifiers.contains(gdk::ModifierType::CONTROL_MASK);
             match (key, ctrl) {
+                (gdk::Key::Tab, false) => {
+                    let next_view = match *state.view.borrow() {
+                        AppView::Clipboard => AppView::Secrets,
+                        AppView::Secrets => AppView::Clipboard,
+                    };
+                    switch_view(&state, next_view);
+                    gtk::glib::Propagation::Stop
+                }
                 (gdk::Key::Down, false) => {
                     move_selection(&state, 1);
                     gtk::glib::Propagation::Stop
@@ -248,23 +274,7 @@ fn connect_keyboard(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
                     gtk::glib::Propagation::Stop
                 }
                 (gdk::Key::c | gdk::Key::C, true) => {
-                    match *state.view.borrow() {
-                        AppView::Clipboard => {
-                            *state.filter.borrow_mut() = EntryFilter::Colors;
-                            if let Err(err) = refresh_entries(&state) {
-                                set_footer(&state, &format!("Filter failed: {err:#}"));
-                            }
-                        }
-                        AppView::Secrets => {
-                            if let Some(secret) = current_secret(&state) {
-                                if let Err(err) = copy_secret(&state, &secret) {
-                                    set_footer(&state, &format!("Copy failed: {err:#}"));
-                                } else {
-                                    set_footer(&state, "Copied secret");
-                                }
-                            }
-                        }
-                    }
+                    handle_copy(&state);
                     gtk::glib::Propagation::Stop
                 }
                 _ => gtk::glib::Propagation::Proceed,

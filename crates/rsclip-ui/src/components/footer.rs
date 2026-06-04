@@ -13,7 +13,7 @@ pub(crate) fn build() -> FooterBar {
     container.add_css_class("footer");
 
     let footer = gtk::Label::new(Some(
-        "Enter: paste | Ctrl+Enter: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
+        "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
     ));
     footer.add_css_class("footer-label");
     footer.add_css_class("muted");

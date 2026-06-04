@@ -3,7 +3,7 @@ use std::path::Path;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::favicons::domain_cache_key;
-use rsclip_core::format::{masked_secret, relative_time};
+use rsclip_core::format::relative_time;
 use rsclip_core::models::{ClipboardEntry, EntryData, EntryKind, SecretEntry};
 
 const FAVICON_SLOT_SIZE: i32 = 28;
@@ -89,11 +89,7 @@ pub(crate) fn secret_row(secret: &SecretEntry) -> gtk::ListBoxRow {
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
     text.append(&title);
 
-    let subtitle = gtk::Label::new(Some(&format!(
-        "{} - {}",
-        masked_secret(&secret.value),
-        relative_time(secret.updated_at)
-    )));
+    let subtitle = gtk::Label::new(Some(&relative_time(secret.updated_at)));
     subtitle.add_css_class("entry-subtitle");
     subtitle.set_xalign(0.0);
     subtitle.set_ellipsize(gtk::pango::EllipsizeMode::End);
@@ -112,12 +108,21 @@ fn row_icon(icon_name: &str, tooltip: &str) -> gtk::Image {
     icon
 }
 
-fn badge_icon(icon_name: &str, tooltip: &str) -> gtk::Image {
+fn badge_icon(icon_name: &str, tooltip: &str) -> gtk::Widget {
+    let badge = gtk::CenterBox::new();
+    badge.add_css_class("kind-badge");
+    badge.set_tooltip_text(Some(tooltip));
+    badge.set_width_request(28);
+    badge.set_height_request(28);
+    badge.set_halign(gtk::Align::Center);
+    badge.set_valign(gtk::Align::Center);
+
     let icon = gtk::Image::from_icon_name(icon_name);
-    icon.add_css_class("kind-badge");
-    icon.set_tooltip_text(Some(tooltip));
     icon.set_pixel_size(12);
-    icon
+    icon.set_halign(gtk::Align::Center);
+    icon.set_valign(gtk::Align::Center);
+    badge.set_center_widget(Some(&icon));
+    badge.upcast()
 }
 
 fn entry_icon(entry: &ClipboardEntry, favicon_icon_dir: &Path) -> gtk::Widget {

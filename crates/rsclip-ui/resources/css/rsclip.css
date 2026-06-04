@@ -270,9 +270,27 @@ listbox row.entry-row:selected image {
   background: @accent;
   border-radius: 0;
   color: @accent_text;
-  min-height: 18px;
-  min-width: 20px;
-  padding: 1px 4px;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0;
+}
+
+.kind-badge image {
+  color: @accent_text;
+}
+
+.entry-row.selected-entry .kind-badge,
+.entry-list row:selected .kind-badge,
+listbox row.entry-row:selected .kind-badge {
+  background: @accent;
+  background-color: @accent;
+  color: @accent_text;
+}
+
+.entry-row.selected-entry .kind-badge image,
+.entry-list row:selected .kind-badge image,
+listbox row.entry-row:selected .kind-badge image {
+  color: @accent_text;
 }
 
 .preview-text {
