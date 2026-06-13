@@ -1,35 +1,64 @@
+use std::cell::RefCell;
+
 use gtk::gdk;
 use gtk4 as gtk;
 use rsclip_core::{AppConfig, UiColors};
 
+thread_local! {
+    static CSS_PROVIDER: RefCell<Option<gtk::CssProvider>> = const { RefCell::new(None) };
+}
+
 pub(crate) fn load_css(config: &AppConfig) -> anyhow::Result<()> {
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(&build_css(config)?);
-    if let Some(display) = gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
+    let css = build_css(config)?;
+    CSS_PROVIDER.with(|slot| {
+        let provider = if let Some(provider) = slot.borrow().as_ref().cloned() {
+            provider
+        } else {
+            let provider = gtk::CssProvider::new();
+            if let Some(display) = gdk::Display::default() {
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+            }
+            *slot.borrow_mut() = Some(provider.clone());
+            provider
+        };
+        provider.load_from_data(&css);
+    });
     Ok(())
 }
 
 pub(crate) fn build_css(config: &AppConfig) -> anyhow::Result<String> {
     let mut css = String::new();
     for color in theme_colors() {
-        let value = (color.configured)(&config.ui.colors).unwrap_or(color.default_value);
-        let value = value.trim();
-        validate_color(color.name, value)?;
+        let value = theme_color_value(config, color)?;
         css.push_str("@define-color ");
         css.push_str(color.name);
         css.push(' ');
-        css.push_str(value);
+        css.push_str(&value);
         css.push_str(";\n");
     }
     css.push('\n');
     css.push_str(include_str!("../resources/css/rsclip.css"));
     Ok(css)
+}
+
+fn theme_color_value(config: &AppConfig, color: &ThemeColor) -> anyhow::Result<String> {
+    let value = (color.configured)(&config.ui.colors)
+        .unwrap_or(color.default_value)
+        .trim();
+
+    if color.name == "shell_bg"
+        && let Some(opacity) = config.ui.background_opacity
+    {
+        validate_opacity(opacity)?;
+        return color_with_alpha("shell_bg", value, opacity);
+    }
+
+    validate_color(color.name, value)?;
+    Ok(value.to_string())
 }
 
 struct ThemeColor {
@@ -165,7 +194,7 @@ fn theme_colors() -> &'static [ThemeColor] {
 
 fn validate_color(name: &str, value: &str) -> anyhow::Result<()> {
     let trimmed = value.trim();
-    if is_hex_color(trimmed) || parse_rgb_color(trimmed).is_some() {
+    if parse_color_value(trimmed).is_some() {
         return Ok(());
     }
 
@@ -174,14 +203,69 @@ fn validate_color(name: &str, value: &str) -> anyhow::Result<()> {
     )
 }
 
-fn is_hex_color(value: &str) -> bool {
-    let Some(hex) = value.strip_prefix('#') else {
-        return false;
-    };
-    matches!(hex.len(), 3 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
+fn validate_opacity(opacity: f32) -> anyhow::Result<()> {
+    if opacity.is_finite() && (0.0..=1.0).contains(&opacity) {
+        return Ok(());
+    }
+    anyhow::bail!("invalid ui.background_opacity: expected a number from 0.0 to 1.0")
 }
 
-fn parse_rgb_color(value: &str) -> Option<()> {
+fn color_with_alpha(name: &str, value: &str, alpha: f32) -> anyhow::Result<String> {
+    let color = parse_color_value(value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "invalid ui.colors.{name}: expected CSS color like #c3fb5b or rgba(30, 30, 32, 0.70)"
+        )
+    })?;
+    Ok(format!(
+        "rgba({}, {}, {}, {})",
+        color.red,
+        color.green,
+        color.blue,
+        css_alpha(alpha)
+    ))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ParsedColor {
+    red: u8,
+    green: u8,
+    blue: u8,
+}
+
+fn parse_color_value(value: &str) -> Option<ParsedColor> {
+    parse_hex_color(value).or_else(|| parse_rgb_color(value))
+}
+
+fn parse_hex_color(value: &str) -> Option<ParsedColor> {
+    let hex = value.strip_prefix('#')?;
+    if !matches!(hex.len(), 3 | 6 | 8) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+
+    let expand = |ch: char| -> Option<u8> {
+        let text = format!("{ch}{ch}");
+        u8::from_str_radix(&text, 16).ok()
+    };
+
+    match hex.len() {
+        3 => {
+            let mut chars = hex.chars();
+            Some(ParsedColor {
+                red: expand(chars.next()?)?,
+                green: expand(chars.next()?)?,
+                blue: expand(chars.next()?)?,
+            })
+        }
+        6 | 8 => Some(ParsedColor {
+            red: u8::from_str_radix(&hex[0..2], 16).ok()?,
+            green: u8::from_str_radix(&hex[2..4], 16).ok()?,
+            blue: u8::from_str_radix(&hex[4..6], 16).ok()?,
+        }),
+        _ => None,
+    }
+}
+
+fn parse_rgb_color(value: &str) -> Option<ParsedColor> {
     let (prefix, suffix) = if let Some(inner) = value.strip_prefix("rgb(") {
         ("rgb", inner)
     } else if let Some(inner) = value.strip_prefix("rgba(") {
@@ -193,17 +277,17 @@ fn parse_rgb_color(value: &str) -> Option<()> {
     let parts = inner.split(',').map(str::trim).collect::<Vec<_>>();
     match (prefix, parts.as_slice()) {
         ("rgb", [red, green, blue]) => {
-            parse_rgb_channel(red)?;
-            parse_rgb_channel(green)?;
-            parse_rgb_channel(blue)?;
-            Some(())
+            let red = parse_rgb_channel(red)?;
+            let green = parse_rgb_channel(green)?;
+            let blue = parse_rgb_channel(blue)?;
+            Some(ParsedColor { red, green, blue })
         }
         ("rgba", [red, green, blue, alpha]) => {
-            parse_rgb_channel(red)?;
-            parse_rgb_channel(green)?;
-            parse_rgb_channel(blue)?;
+            let red = parse_rgb_channel(red)?;
+            let green = parse_rgb_channel(green)?;
+            let blue = parse_rgb_channel(blue)?;
             parse_alpha(alpha)?;
-            Some(())
+            Some(ParsedColor { red, green, blue })
         }
         _ => None,
     }
@@ -221,7 +305,18 @@ fn parse_alpha(value: &str) -> Option<()> {
         return None;
     }
     let alpha = value.parse::<f32>().ok()?;
-    (0.0..=1.0).contains(&alpha).then_some(())
+    (alpha.is_finite() && (0.0..=1.0).contains(&alpha)).then_some(())
+}
+
+fn css_alpha(alpha: f32) -> String {
+    let mut text = format!("{alpha:.3}");
+    while text.contains('.') && text.ends_with('0') {
+        text.pop();
+    }
+    if text.ends_with('.') {
+        text.pop();
+    }
+    text
 }
 
 #[cfg(test)]
@@ -278,5 +373,26 @@ mod tests {
         ] {
             validate_color("accent", value).expect("supported color format should validate");
         }
+    }
+
+    #[test]
+    fn background_opacity_overrides_shell_alpha() {
+        let mut config = AppConfig::default();
+        config.ui.background_opacity = Some(0.42);
+        config.ui.colors.shell_bg = Some("#203040".to_string());
+
+        let css = build_css(&config).expect("CSS with background opacity should build");
+
+        assert!(css.contains("@define-color shell_bg rgba(32, 48, 64, 0.42);"));
+    }
+
+    #[test]
+    fn invalid_background_opacity_returns_offending_key() {
+        let mut config = AppConfig::default();
+        config.ui.background_opacity = Some(1.2);
+
+        let err = build_css(&config).unwrap_err();
+
+        assert!(format!("{err:#}").contains("ui.background_opacity"));
     }
 }

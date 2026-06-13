@@ -1,6 +1,6 @@
 use anyhow::Result;
 use rsclip_core::cli::parse_list_entries_args;
-use rsclip_core::{RsclipPaths, Database};
+use rsclip_core::{Database, RsclipPaths};
 
 pub fn run(args: &[String]) -> Result<()> {
     let list_args = parse_list_entries_args(args);

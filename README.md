@@ -74,12 +74,67 @@ daemon stores history in SQLite and notifies the UI over the existing Unix datag
 
 Install the service and desktop file by adapting the files under `packaging/`.
 
+## Configuration
+
+rsclip reads `~/.config/rsclip/config.toml`. Start from `config.example.toml`
+for the full set of options.
+
+History settings control UI list size, payload caps, dedupe behavior, and optional
+soft cleanup for old unpinned entries. Byte caps and cleanup use `0` as disabled.
+
+```toml
+[history]
+max_entries = 5000
+max_text_bytes = 1048576
+max_image_bytes = 10485760
+dedupe = true
+cleanup_unpinned_after_days = 0
+```
+
+Paste behavior is configurable for the resident UI:
+
+```toml
+[paste]
+auto_paste = true
+paste_delay_ms = 140
+method = "wtype"
+```
+
+OCR defaults are shared by the UI button and `rsclipd ocr`:
+
+```toml
+[ocr]
+enabled = true
+command = "tesseract"
+default_language = "eng"
+timeout_seconds = 20
+auto_index = false
+```
+
+The resident UI also supports geometry and behavior settings:
+
+```toml
+[ui]
+window_width = 920
+window_height = 620
+background_opacity = 0.70
+preview_default = true
+sidebar_width = 320
+start_view = "clipboard"
+default_filter = "all"
+default_sort = "default"
+```
+
+The resident UI watches `config.toml` and reloads UI settings automatically.
+
 ## Theme colors
 
 The resident UI reads optional theme colors from `~/.config/rsclip/config.toml`.
 All keys under `[ui.colors]` are optional; missing keys keep the built-in
 `nonchalant-dark` defaults. Supported color formats are `#rgb`, `#rrggbb`,
 `#rrggbbaa`, `rgb(r, g, b)`, and `rgba(r, g, b, a)`.
+Use `ui.background_opacity` for the shell backdrop transparency, or set
+`ui.colors.shell_bg` directly for full RGBA control.
 
 ```toml
 [ui.colors]
@@ -87,7 +142,7 @@ accent = "#ff00aa"
 accent_text = "#000000"
 ```
 
-Restart the resident UI with `rsclip quit-ui` after changing colors.
+Color changes are hot-reloaded by the resident UI.
 
 ## Link favicons
 

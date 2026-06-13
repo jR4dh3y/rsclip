@@ -36,8 +36,9 @@ Commands:
   list [--json] [--query q]           List history
   pin <id> [--off]                   Pin or unpin an entry
   delete <id>                        Soft-delete an entry
-  paste <id> [--copy-only]            Restore an entry and optionally paste
-  ocr <id> [--lang eng]              Run tesseract OCR for an image entry
+  paste <id> [--copy-only] [--delay-ms <ms>]
+                                      Restore an entry and optionally paste
+  ocr <id> [--lang <lang>]           Run configured OCR for an image entry
   favicons clear                     Clear cached favicons and failed-domain records
   favicons refresh                   Clear and queue favicons for stored link domains
 "#

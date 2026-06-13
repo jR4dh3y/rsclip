@@ -1,5 +1,6 @@
 [history]
 max_entries = 2000
+# 0 disables a byte cap.
 max_text_bytes = 1048576
 max_image_bytes = 10485760
 dedupe = true
@@ -7,13 +8,14 @@ cleanup_unpinned_after_days = 0
 
 [paste]
 auto_paste = true
-paste_delay_ms = 80
+paste_delay_ms = 140
 method = "wtype"
 
 [ocr]
 enabled = true
 command = "tesseract"
 default_language = "eng"
+# 0 disables the timeout.
 timeout_seconds = 20
 auto_index = false
 
@@ -21,12 +23,21 @@ auto_index = false
 theme = "nonchalant-dark"
 window_width = 920
 window_height = 620
+background_opacity = 0.70
+resizable = false
 preview_default = true
-image_preview_max_width = 520
-image_preview_max_height = 420
+sidebar_width = 320
+show_footer_hints = true
+reset_on_show = true
+auto_focus_search = true
+start_view = "clipboard"
+default_filter = "all"
+default_sort = "default"
+search_placeholder = "Search clipboard..."
+secrets_search_placeholder = "Search secrets by name..."
 
 # All ui.colors keys are optional. Missing keys use the built-in defaults.
-# Restart the resident UI with `rsclip quit-ui` after changing colors.
+# The resident UI watches config.toml and hot-reloads UI settings and colors.
 [ui.colors]
 shell_bg = "rgba(30, 30, 32, 0.70)"
 shell_border = "rgba(220, 217, 231, 0.14)"

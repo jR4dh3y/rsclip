@@ -1,10 +1,10 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::models::{ClipboardEntry, EntryFilter, NewEntry, NewEntryData, SortMode};
 
-use super::{rows::entry_from_row, Database};
+use super::{Database, rows::entry_from_row};
 
 impl Database {
     pub fn upsert_entry(&self, entry: &NewEntry) -> Result<i64> {
@@ -167,7 +167,7 @@ impl Database {
             SortMode::MostUsed => " ORDER BY e.use_count DESC, e.updated_at DESC",
         });
         sql.push_str(" LIMIT ");
-        sql.push_str(&limit.min(1000).to_string());
+        sql.push_str(&limit.to_string());
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = if has_query {
@@ -243,5 +243,24 @@ impl Database {
             params![id, now],
         )?;
         Ok(())
+    }
+
+    pub fn delete_unpinned_older_than_days(&self, days: u32) -> Result<usize> {
+        if days == 0 {
+            return Ok(0);
+        }
+
+        let cutoff = Utc::now().timestamp() - i64::from(days) * 86_400;
+        let deleted = self.conn.execute(
+            r#"
+            UPDATE entries
+               SET deleted = 1, updated_at = ?2
+             WHERE deleted = 0
+               AND pinned = 0
+               AND updated_at < ?1
+            "#,
+            params![cutoff, Utc::now().timestamp()],
+        )?;
+        Ok(deleted)
     }
 }

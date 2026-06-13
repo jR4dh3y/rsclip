@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rsclip_core::cli::{flag, positional_i64};
 use rsclip_core::notify::notify_changed;
-use rsclip_core::{RsclipPaths, Database};
+use rsclip_core::{Database, RsclipPaths};
 
 pub fn run(args: &[String]) -> Result<()> {
     let id = positional_i64(args, 0, "entry id")?;

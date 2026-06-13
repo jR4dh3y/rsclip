@@ -35,7 +35,8 @@ fn connect_mode_buttons(state: &Rc<AppState>) {
             *state.view.borrow_mut() = AppView::Clipboard;
             *state.query.borrow_mut() = String::new();
             search.set_text("");
-            search.set_placeholder_text(Some("Search clipboard..."));
+            let placeholder = crate::window::search_placeholder(state.as_ref(), AppView::Clipboard);
+            search.set_placeholder_text(Some(&placeholder));
             update_mode_controls(&state);
             if let Err(err) = refresh_entries(&state) {
                 set_footer(&state, &format!("Switch failed: {err:#}"));
@@ -51,7 +52,8 @@ fn connect_mode_buttons(state: &Rc<AppState>) {
             *state.view.borrow_mut() = AppView::Secrets;
             *state.query.borrow_mut() = String::new();
             search.set_text("");
-            search.set_placeholder_text(Some("Search secrets by name..."));
+            let placeholder = crate::window::search_placeholder(state.as_ref(), AppView::Secrets);
+            search.set_placeholder_text(Some(&placeholder));
             update_mode_controls(&state);
             if let Err(err) = refresh_entries(&state) {
                 set_footer(&state, &format!("Switch failed: {err:#}"));
@@ -68,10 +70,8 @@ fn switch_view(state: &Rc<AppState>, view: AppView) {
     *state.view.borrow_mut() = view;
     *state.query.borrow_mut() = String::new();
     state.search_entry.set_text("");
-    state.search_entry.set_placeholder_text(Some(match view {
-        AppView::Clipboard => "Search clipboard...",
-        AppView::Secrets => "Search secrets by name...",
-    }));
+    let placeholder = crate::window::search_placeholder(state.as_ref(), view);
+    state.search_entry.set_placeholder_text(Some(&placeholder));
     update_mode_controls(state);
     if let Err(err) = refresh_entries(state) {
         set_footer(state, &format!("Switch failed: {err:#}"));

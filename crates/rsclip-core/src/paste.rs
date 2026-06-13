@@ -4,7 +4,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::models::{ClipboardEntry, EntryData};
 
@@ -26,10 +26,19 @@ pub fn copy_entry(entry: &ClipboardEntry) -> Result<()> {
 }
 
 pub fn paste_entry(entry: &ClipboardEntry, auto_paste: bool, delay_ms: u64) -> Result<()> {
+    paste_entry_with_method(entry, auto_paste, delay_ms, "wtype")
+}
+
+pub fn paste_entry_with_method(
+    entry: &ClipboardEntry,
+    auto_paste: bool,
+    delay_ms: u64,
+    method: &str,
+) -> Result<()> {
     copy_entry(entry)?;
     if auto_paste {
         thread::sleep(Duration::from_millis(delay_ms));
-        trigger_paste()?;
+        trigger_paste_with_method(method)?;
     }
     Ok(())
 }
@@ -55,6 +64,18 @@ pub fn write_clipboard(mime_type: &str, bytes: &[u8]) -> Result<()> {
 }
 
 pub fn trigger_paste() -> Result<()> {
+    trigger_paste_with_method("wtype")
+}
+
+pub fn trigger_paste_with_method(method: &str) -> Result<()> {
+    match method.trim() {
+        "wtype" => trigger_paste_wtype(),
+        "" => bail!("paste method is empty"),
+        other => bail!("unsupported paste method '{other}'; supported method: wtype"),
+    }
+}
+
+fn trigger_paste_wtype() -> Result<()> {
     let status = Command::new("wtype")
         .args(["-M", "ctrl", "v", "-m", "ctrl"])
         .status()

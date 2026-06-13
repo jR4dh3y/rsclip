@@ -15,6 +15,8 @@ pub mod secrets;
 pub mod storage;
 
 pub use classify::classify_payload;
-pub use config::{AppConfig, LinksConfig, RsclipPaths, UiColors, UiConfig};
+pub use config::{
+    AppConfig, HistoryConfig, LinksConfig, OcrConfig, PasteConfig, RsclipPaths, UiColors, UiConfig,
+};
 pub use db::Database;
 pub use models::{ClipboardEntry, EntryData, EntryKind, NewEntry, NewEntryData};

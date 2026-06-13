@@ -2,6 +2,7 @@ mod actions;
 mod app;
 mod cli;
 mod components;
+mod config_reload;
 mod dialogs;
 mod events;
 mod notify;

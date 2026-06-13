@@ -120,6 +120,92 @@ mod tests {
     }
 
     #[test]
+    fn list_entries_honors_large_requested_limit() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+
+        for index in 0..1005 {
+            let title = format!("entry-{index}");
+            db.conn
+                .execute(
+                    r#"
+                    INSERT INTO entries (
+                      content_hash, kind, mime_type, title, preview_text, text_content,
+                      copied_at, updated_at, size_bytes
+                    )
+                    VALUES (?1, 'text', 'text/plain', ?2, ?2, ?2, ?3, ?3, ?4)
+                    "#,
+                    rusqlite::params![
+                        format!("large-limit-hash-{index}"),
+                        title,
+                        index as i64,
+                        index as i64,
+                    ],
+                )
+                .unwrap();
+        }
+
+        let entries = db
+            .list_entries("", EntryFilter::All, SortMode::Default, 1005)
+            .unwrap();
+
+        assert_eq!(entries.len(), 1005);
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+
+    #[test]
+    fn cleanup_soft_deletes_only_old_unpinned_entries() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+        let now = chrono::Utc::now().timestamp();
+        let old = now - 3 * 86_400;
+
+        for (hash, title, updated_at, pinned) in [
+            ("old-unpinned", "old unpinned", old, 0),
+            ("old-pinned", "old pinned", old, 1),
+            ("recent-unpinned", "recent unpinned", now, 0),
+        ] {
+            db.conn
+                .execute(
+                    r#"
+                    INSERT INTO entries (
+                      content_hash, kind, mime_type, title, preview_text, text_content,
+                      pinned, copied_at, updated_at, size_bytes
+                    )
+                    VALUES (?1, 'text', 'text/plain', ?2, ?2, ?2, ?3, ?4, ?4, ?5)
+                    "#,
+                    rusqlite::params![hash, title, pinned, updated_at, title.len() as i64],
+                )
+                .unwrap();
+        }
+
+        let deleted = db.delete_unpinned_older_than_days(1).unwrap();
+        let entries = db
+            .list_entries(
+                "",
+                crate::models::EntryFilter::All,
+                crate::models::SortMode::Default,
+                10,
+            )
+            .unwrap();
+
+        assert_eq!(deleted, 1);
+        assert_eq!(entries.len(), 2);
+        assert!(entries.iter().any(|entry| entry.title == "old pinned"));
+        assert!(entries.iter().any(|entry| entry.title == "recent unpinned"));
+        assert!(!entries.iter().any(|entry| entry.title == "old unpinned"));
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+
+    #[test]
     fn migration_repairs_generated_https_links_from_bare_text() {
         let path = temp_db_path();
         let db = Database::open(&path).unwrap();

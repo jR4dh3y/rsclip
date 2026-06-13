@@ -12,6 +12,7 @@ use crate::state::{AppState, AppView, current_entry, current_secret};
 
 pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     let db = Database::open(&state.db_path)?;
+    let limit = state.history_limit.get();
 
     match *state.view.borrow() {
         AppView::Clipboard => {
@@ -20,14 +21,14 @@ pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
                 &state.query.borrow(),
                 *state.filter.borrow(),
                 *state.sort.borrow(),
-                200,
+                limit,
             )?;
             *state.entries.borrow_mut() = entries;
             render_clipboard_list(state, selected_id);
         }
         AppView::Secrets => {
             let selected_id = current_secret(state).map(|secret| secret.id);
-            let secrets = db.list_secrets(&state.query.borrow(), 200)?;
+            let secrets = db.list_secrets(&state.query.borrow(), limit)?;
             *state.secrets.borrow_mut() = secrets;
             render_secrets_list(state, selected_id);
         }
@@ -37,6 +38,7 @@ pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
 
 pub(crate) fn refresh_entries_if_changed(state: &Rc<AppState>) -> Result<()> {
     let db = Database::open(&state.db_path)?;
+    let limit = state.history_limit.get();
 
     match *state.view.borrow() {
         AppView::Clipboard => {
@@ -44,7 +46,7 @@ pub(crate) fn refresh_entries_if_changed(state: &Rc<AppState>) -> Result<()> {
                 &state.query.borrow(),
                 *state.filter.borrow(),
                 *state.sort.borrow(),
-                200,
+                limit,
             )?;
             if state.entries.borrow().as_slice() == entries.as_slice() {
                 return Ok(());
@@ -54,7 +56,7 @@ pub(crate) fn refresh_entries_if_changed(state: &Rc<AppState>) -> Result<()> {
             render_clipboard_list(state, selected_id);
         }
         AppView::Secrets => {
-            let secrets = db.list_secrets(&state.query.borrow(), 200)?;
+            let secrets = db.list_secrets(&state.query.borrow(), limit)?;
             if state.secrets.borrow().as_slice() == secrets.as_slice() {
                 return Ok(());
             }
@@ -114,10 +116,14 @@ fn render_clipboard_list(state: &Rc<AppState>, selected_id: Option<i64>) {
     state
         .count_label
         .set_text(&format!("Entries {}", state.entries.borrow().len()));
-    set_footer(
-        state,
-        "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
-    );
+    if state.show_footer_hints.get() {
+        set_footer(
+            state,
+            "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
+        );
+    } else {
+        set_footer(state, "");
+    }
 }
 
 fn render_secrets_list(state: &Rc<AppState>, selected_id: Option<i64>) {
@@ -151,8 +157,12 @@ fn render_secrets_list(state: &Rc<AppState>, selected_id: Option<i64>) {
     state
         .count_label
         .set_text(&format!("Secrets {}", state.secrets.borrow().len()));
-    set_footer(
-        state,
-        "Tab: switch tab | Enter: copy | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
-    );
+    if state.show_footer_hints.get() {
+        set_footer(
+            state,
+            "Tab: switch tab | Enter: copy | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
+        );
+    } else {
+        set_footer(state, "");
+    }
 }

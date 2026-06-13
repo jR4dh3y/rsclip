@@ -1,4 +1,5 @@
 use std::io::{self, Read};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use rsclip_core::cli::option_value;
@@ -6,6 +7,7 @@ use rsclip_core::favicons;
 use rsclip_core::notify::notify_changed;
 use rsclip_core::storage::{content_hash, store_image};
 use rsclip_core::{AppConfig, Database, NewEntryData, RsclipPaths, classify_payload};
+use tracing::{info, warn};
 
 pub fn run(args: &[String]) -> Result<()> {
     let mime_type = option_value(args, "--mime").unwrap_or("text/plain");
@@ -20,9 +22,26 @@ pub fn run(args: &[String]) -> Result<()> {
 
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
+    let config = AppConfig::load(&paths)?;
+
+    if let Some(limit) = payload_limit(mime_type, &config)
+        && payload.len() > limit
+    {
+        info!(
+            "skipping {mime_type} clipboard payload: {} bytes exceeds configured limit {limit}",
+            payload.len()
+        );
+        return Ok(());
+    }
+
     let db = Database::open(&paths.db_path)?;
     let hash = content_hash(&payload);
-    let mut entry = classify_payload(mime_type, hash.clone(), &payload)?;
+    let entry_hash = if config.history.dedupe {
+        hash.clone()
+    } else {
+        unique_entry_hash(&hash)
+    };
+    let mut entry = classify_payload(mime_type, entry_hash, &payload)?;
     if mime_type.starts_with("image/") {
         let path = store_image(&paths, &hash, mime_type, &payload)?;
         if let NewEntryData::Image {
@@ -36,7 +55,26 @@ pub fn run(args: &[String]) -> Result<()> {
     }
 
     let id = db.upsert_entry(&entry)?;
-    let config = AppConfig::load(&paths)?;
+    if config.ocr.enabled
+        && config.ocr.auto_index
+        && let NewEntryData::Image {
+            file_path: Some(file_path),
+            ..
+        } = &entry.data
+    {
+        match rsclip_core::ocr::run_tesseract_with_options(
+            file_path,
+            &config.ocr.default_language,
+            &config.ocr.command,
+            config.ocr.timeout_seconds,
+        ) {
+            Ok(text) => db.save_ocr_result(id, &config.ocr.default_language, &text)?,
+            Err(err) => warn!("auto OCR failed for entry {id}: {err:#}"),
+        }
+    }
+    if config.history.cleanup_unpinned_after_days > 0 {
+        let _ = db.delete_unpinned_older_than_days(config.history.cleanup_unpinned_after_days)?;
+    }
     if config.links.favicon_cache
         && let NewEntryData::Link { domain, .. } = &entry.data
     {
@@ -45,4 +83,21 @@ pub fn run(args: &[String]) -> Result<()> {
     notify_changed(&paths);
     println!("{id}");
     Ok(())
+}
+
+fn payload_limit(mime_type: &str, config: &AppConfig) -> Option<usize> {
+    let limit = if mime_type.starts_with("image/") {
+        config.history.max_image_bytes
+    } else {
+        config.history.max_text_bytes
+    };
+    (limit > 0).then_some(limit)
+}
+
+fn unique_entry_hash(hash: &str) -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    format!("{hash}-{}-{nanos}", std::process::id())
 }

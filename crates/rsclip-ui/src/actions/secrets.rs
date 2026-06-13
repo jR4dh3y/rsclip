@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use anyhow::{Context, Result};
-use rsclip_core::Database;
-use rsclip_core::secrets::{default_secret_alias, secret_value_from_entry};
 use gtk::prelude::*;
 use gtk4 as gtk;
+use rsclip_core::Database;
+use rsclip_core::secrets::{default_secret_alias, secret_value_from_entry};
 
 use crate::actions::refresh::refresh_entries;
 use crate::actions::{set_footer, update_mode_controls};
@@ -34,9 +34,8 @@ pub(crate) fn save_current_as_secret_dialog(state: &Rc<AppState>, parent: &gtk::
             *state.view.borrow_mut() = AppView::Secrets;
             *state.query.borrow_mut() = String::new();
             state.search_entry.set_text("");
-            state
-                .search_entry
-                .set_placeholder_text(Some("Search secrets by name..."));
+            let placeholder = crate::window::search_placeholder(state.as_ref(), AppView::Secrets);
+            state.search_entry.set_placeholder_text(Some(&placeholder));
             update_mode_controls(state);
             refresh_entries(state)?;
             set_footer(state, "Saved secret");
@@ -89,9 +88,9 @@ pub(crate) fn delete_current(state: &Rc<AppState>) -> Result<()> {
                 *state.view.borrow_mut() = AppView::Clipboard;
                 *state.query.borrow_mut() = String::new();
                 state.search_entry.set_text("");
-                state
-                    .search_entry
-                    .set_placeholder_text(Some("Search clipboard..."));
+                let placeholder =
+                    crate::window::search_placeholder(state.as_ref(), AppView::Clipboard);
+                state.search_entry.set_placeholder_text(Some(&placeholder));
                 update_mode_controls(state);
             }
         }

@@ -7,14 +7,18 @@ pub(crate) struct FooterBar {
     pub(crate) ocr_button: gtk::Button,
 }
 
-pub(crate) fn build() -> FooterBar {
+pub(crate) fn build(show_hints: bool) -> FooterBar {
     let container = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     container.set_valign(gtk::Align::Center);
     container.add_css_class("footer");
 
-    let footer = gtk::Label::new(Some(
-        "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
-    ));
+    let footer = gtk::Label::new(if show_hints {
+        Some(
+            "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+S: secret | Ctrl+P: pin | Ctrl+D: delete | Esc: close",
+        )
+    } else {
+        None
+    });
     footer.add_css_class("footer-label");
     footer.add_css_class("muted");
     footer.set_xalign(0.0);

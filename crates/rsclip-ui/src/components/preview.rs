@@ -138,10 +138,11 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     let is_image = matches!(&entry.data, EntryData::Image { .. });
+    let can_ocr = is_image && state.ocr_enabled.get();
     state
         .ocr_button
-        .set_opacity(if is_image { 1.0 } else { 0.0 });
-    state.ocr_button.set_sensitive(is_image);
+        .set_opacity(if can_ocr { 1.0 } else { 0.0 });
+    state.ocr_button.set_sensitive(can_ocr);
 
     match &entry.data {
         EntryData::Image { .. } => render_image_preview(&state.preview, entry),

@@ -1,11 +1,11 @@
 use anyhow::Result;
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{OptionalExtension, params};
 
 use crate::models::SecretEntry;
 use crate::secrets::normalize_secret_alias;
 
-use super::{rows::secret_from_row, Database};
+use super::{Database, rows::secret_from_row};
 
 impl Database {
     pub fn list_secrets(&self, query: &str, limit: usize) -> Result<Vec<SecretEntry>> {

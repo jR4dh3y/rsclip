@@ -1,7 +1,7 @@
-use rsclip_core::format::{format_full_time, human_size};
-use rsclip_core::models::{ClipboardEntry, SecretEntry};
 use gtk::prelude::*;
 use gtk4 as gtk;
+use rsclip_core::format::{format_full_time, human_size};
+use rsclip_core::models::{ClipboardEntry, SecretEntry};
 
 use crate::components::labels::muted_label;
 
