@@ -165,11 +165,21 @@ Clear cached icons and failed-domain records with:
 rsclipd favicons clear
 ```
 
+## Release Notes
+
+### v0.1.8
+
+- Added `~/.config/rsclip/config.toml` support for history, paste, OCR, UI, color, and favicon settings.
+- Hot-reloaded resident UI settings and theme colors without requiring `rsclip quit-ui`.
+- Removed the fixed 200-item UI cap; clipboard and secret lists now use `history.max_entries`.
+- Made paste and OCR behavior configurable for both daemon commands and the resident UI.
+- Added optional link favicon caching through the background daemon.
+
 ## Release and AUR
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.6`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.8`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.6` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.8` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.

@@ -6,8 +6,8 @@ repository.
 ## Release flow
 
 1. Bump the crate versions in `crates/*/Cargo.toml` when needed.
-2. Push a matching tag such as `v0.1.6`.
-3. GitHub Actions uploads `rsclip-0.1.6-x86_64.tar.zst` and its `.sha256`
+2. Push a matching tag such as `v0.1.8`.
+3. GitHub Actions uploads `rsclip-0.1.8-x86_64.tar.zst` and its `.sha256`
    file to the release.
 4. GitHub Actions updates `PKGBUILD` and `.SRCINFO`, then publishes them to the
    AUR as `rsclip-bin`.
