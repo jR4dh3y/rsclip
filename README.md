@@ -4,6 +4,8 @@ rsclip is a small Rust clipboard manager for Wayland desktops. It uses a low-mem
 capture clipboard content and a separate resident GTK4 UI that starts on demand, stays warm,
 and is activated by later `rsclip` invocations.
 
+![rsclip resident UI](assets/rsclip-ui.png)
+
 ## Current scope
 
 - SQLite-backed text and image history.
