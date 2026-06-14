@@ -42,7 +42,6 @@ pub(crate) struct AppState {
     pub(crate) filter: RefCell<EntryFilter>,
     pub(crate) sort: RefCell<SortMode>,
     pub(crate) view: RefCell<AppView>,
-    pub(crate) dirty: RefCell<bool>,
     pub(crate) prompt_active: RefCell<bool>,
     pub(crate) search_entry: gtk::SearchEntry,
     pub(crate) filter_select: gtk::DropDown,

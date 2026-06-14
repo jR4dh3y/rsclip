@@ -11,22 +11,18 @@ use tracing::{info, warn};
 
 pub fn run(args: &[String]) -> Result<()> {
     let mime_type = option_value(args, "--mime").unwrap_or("text/plain");
+    let paths = RsclipPaths::discover()?;
+    paths.ensure()?;
+    let config = AppConfig::load(&paths)?;
+    let limit = payload_limit(mime_type, &config);
     let mut payload = Vec::new();
-    io::stdin()
-        .read_to_end(&mut payload)
-        .context("reading clipboard payload from stdin")?;
+    let exceeded = read_payload(limit, &mut payload)?;
 
     if payload.is_empty() {
         return Ok(());
     }
 
-    let paths = RsclipPaths::discover()?;
-    paths.ensure()?;
-    let config = AppConfig::load(&paths)?;
-
-    if let Some(limit) = payload_limit(mime_type, &config)
-        && payload.len() > limit
-    {
+    if exceeded && let Some(limit) = limit {
         info!(
             "skipping {mime_type} clipboard payload: {} bytes exceeds configured limit {limit}",
             payload.len()
@@ -92,6 +88,23 @@ fn payload_limit(mime_type: &str, config: &AppConfig) -> Option<usize> {
         config.history.max_text_bytes
     };
     (limit > 0).then_some(limit)
+}
+
+fn read_payload(limit: Option<usize>, payload: &mut Vec<u8>) -> Result<bool> {
+    let mut stdin = io::stdin();
+    if let Some(limit) = limit {
+        stdin
+            .by_ref()
+            .take(limit.saturating_add(1) as u64)
+            .read_to_end(payload)
+            .context("reading clipboard payload from stdin")?;
+        Ok(payload.len() > limit)
+    } else {
+        stdin
+            .read_to_end(payload)
+            .context("reading clipboard payload from stdin")?;
+        Ok(false)
+    }
 }
 
 fn unique_entry_hash(hash: &str) -> String {

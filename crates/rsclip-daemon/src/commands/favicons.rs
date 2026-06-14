@@ -21,7 +21,7 @@ fn clear() -> Result<()> {
 }
 
 fn clear_paths(paths: &RsclipPaths) -> Result<()> {
-    favicons::clear_cache(&paths)?;
+    favicons::clear_cache(paths)?;
     Ok(())
 }
 

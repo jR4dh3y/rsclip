@@ -169,6 +169,14 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.10
+
+- Treated `text/uri-list` clipboard payloads as file entries instead of plain text.
+- Made schema startup backfill missing columns so older SQLite databases migrate cleanly.
+- Reused the shared color parser for UI theme validation and removed regex-based color parsing.
+- Skipped favicon network fetches for localhost, numeric, and reserved internal domains.
+- Simplified favicon fallback styling and notification setup.
+
 ### v0.1.9
 
 - Switched the resident UI history list to DB-backed virtual scrolling for large histories.
@@ -187,7 +195,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.9`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.10`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.9` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.10` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.

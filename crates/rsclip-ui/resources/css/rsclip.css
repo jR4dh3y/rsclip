@@ -179,6 +179,7 @@ button.mode-button.active-mode label {
 }
 
 .favicon-fallback {
+  background: #51445f;
   border-radius: 3px;
   color: #ffffff;
   font-size: 10px;

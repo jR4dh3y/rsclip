@@ -1,18 +1,9 @@
-use once_cell::sync::Lazy;
-use regex::Regex;
-
 #[derive(Clone, Debug)]
 pub struct ColorInfo {
     pub normalized_hex: String,
     pub original_format: String,
     pub rgb: (u8, u8, u8),
 }
-
-static HEX_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?i)^\s*(#|0x)?([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})\s*$").unwrap());
-static RGB_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)^\s*rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)\s*$").unwrap()
-});
 
 pub fn parse_color(text: &str) -> Option<ColorInfo> {
     parse_hex(text)
@@ -21,8 +12,16 @@ pub fn parse_color(text: &str) -> Option<ColorInfo> {
 }
 
 fn parse_hex(text: &str) -> Option<ColorInfo> {
-    let caps = HEX_RE.captures(text)?;
-    let raw = caps.get(2)?.as_str();
+    let raw = text.trim();
+    let raw = raw
+        .strip_prefix('#')
+        .or_else(|| raw.strip_prefix("0x"))
+        .or_else(|| raw.strip_prefix("0X"))
+        .unwrap_or(raw);
+    if !matches!(raw.len(), 3 | 6 | 8) || !raw.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+
     let hex = match raw.len() {
         3 => raw.chars().flat_map(|c| [c, c]).collect::<String>(),
         6 => raw.to_string(),
@@ -40,10 +39,23 @@ fn parse_hex(text: &str) -> Option<ColorInfo> {
 }
 
 fn parse_rgb(text: &str) -> Option<ColorInfo> {
-    let caps = RGB_RE.captures(text)?;
-    let red = parse_channel(caps.get(1)?.as_str())?;
-    let green = parse_channel(caps.get(2)?.as_str())?;
-    let blue = parse_channel(caps.get(3)?.as_str())?;
+    let text = text.trim();
+    let (name, body) = text.split_once('(')?;
+    if !matches!(name.trim().to_ascii_lowercase().as_str(), "rgb" | "rgba") {
+        return None;
+    }
+    let body = body.strip_suffix(')')?;
+    let mut parts = body.split(',').map(str::trim);
+    let red = parse_channel(parts.next()?)?;
+    let green = parse_channel(parts.next()?)?;
+    let blue = parse_channel(parts.next()?)?;
+    if let Some(alpha) = parts.next() {
+        parse_alpha(alpha)?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+
     Some(ColorInfo {
         normalized_hex: format!("#{red:02x}{green:02x}{blue:02x}"),
         original_format: "rgb".to_string(),
@@ -52,8 +64,19 @@ fn parse_rgb(text: &str) -> Option<ColorInfo> {
 }
 
 fn parse_channel(value: &str) -> Option<u8> {
+    if value.is_empty() || value.len() > 3 || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
     let parsed = value.parse::<u16>().ok()?;
     u8::try_from(parsed).ok()
+}
+
+fn parse_alpha(value: &str) -> Option<()> {
+    if value.is_empty() || value.starts_with('+') || value.starts_with('-') {
+        return None;
+    }
+    let alpha = value.parse::<f32>().ok()?;
+    (alpha.is_finite() && (0.0..=1.0).contains(&alpha)).then_some(())
 }
 
 fn parse_named(text: &str) -> Option<ColorInfo> {
@@ -93,5 +116,11 @@ mod tests {
     fn parses_rgb() {
         let color = parse_color("rgb(195, 251, 91)").unwrap();
         assert_eq!(color.normalized_hex, "#c3fb5b");
+    }
+
+    #[test]
+    fn parses_rgba_as_rgb() {
+        let color = parse_color("rgba(30, 30, 32, 1.0)").unwrap();
+        assert_eq!(color.normalized_hex, "#1e1e20");
     }
 }

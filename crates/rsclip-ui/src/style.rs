@@ -2,6 +2,7 @@ use std::cell::RefCell;
 
 use gtk::gdk;
 use gtk4 as gtk;
+use rsclip_core::colors::parse_color;
 use rsclip_core::{AppConfig, UiColors};
 
 thread_local! {
@@ -194,7 +195,7 @@ fn theme_colors() -> &'static [ThemeColor] {
 
 fn validate_color(name: &str, value: &str) -> anyhow::Result<()> {
     let trimmed = value.trim();
-    if parse_color_value(trimmed).is_some() {
+    if parse_color(trimmed).is_some() {
         return Ok(());
     }
 
@@ -211,101 +212,18 @@ fn validate_opacity(opacity: f32) -> anyhow::Result<()> {
 }
 
 fn color_with_alpha(name: &str, value: &str, alpha: f32) -> anyhow::Result<String> {
-    let color = parse_color_value(value).ok_or_else(|| {
+    let color = parse_color(value).ok_or_else(|| {
         anyhow::anyhow!(
             "invalid ui.colors.{name}: expected CSS color like #c3fb5b or rgba(30, 30, 32, 0.70)"
         )
     })?;
     Ok(format!(
         "rgba({}, {}, {}, {})",
-        color.red,
-        color.green,
-        color.blue,
+        color.rgb.0,
+        color.rgb.1,
+        color.rgb.2,
         css_alpha(alpha)
     ))
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ParsedColor {
-    red: u8,
-    green: u8,
-    blue: u8,
-}
-
-fn parse_color_value(value: &str) -> Option<ParsedColor> {
-    parse_hex_color(value).or_else(|| parse_rgb_color(value))
-}
-
-fn parse_hex_color(value: &str) -> Option<ParsedColor> {
-    let hex = value.strip_prefix('#')?;
-    if !matches!(hex.len(), 3 | 6 | 8) || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
-        return None;
-    }
-
-    let expand = |ch: char| -> Option<u8> {
-        let text = format!("{ch}{ch}");
-        u8::from_str_radix(&text, 16).ok()
-    };
-
-    match hex.len() {
-        3 => {
-            let mut chars = hex.chars();
-            Some(ParsedColor {
-                red: expand(chars.next()?)?,
-                green: expand(chars.next()?)?,
-                blue: expand(chars.next()?)?,
-            })
-        }
-        6 | 8 => Some(ParsedColor {
-            red: u8::from_str_radix(&hex[0..2], 16).ok()?,
-            green: u8::from_str_radix(&hex[2..4], 16).ok()?,
-            blue: u8::from_str_radix(&hex[4..6], 16).ok()?,
-        }),
-        _ => None,
-    }
-}
-
-fn parse_rgb_color(value: &str) -> Option<ParsedColor> {
-    let (prefix, suffix) = if let Some(inner) = value.strip_prefix("rgb(") {
-        ("rgb", inner)
-    } else if let Some(inner) = value.strip_prefix("rgba(") {
-        ("rgba", inner)
-    } else {
-        return None;
-    };
-    let inner = suffix.strip_suffix(')')?;
-    let parts = inner.split(',').map(str::trim).collect::<Vec<_>>();
-    match (prefix, parts.as_slice()) {
-        ("rgb", [red, green, blue]) => {
-            let red = parse_rgb_channel(red)?;
-            let green = parse_rgb_channel(green)?;
-            let blue = parse_rgb_channel(blue)?;
-            Some(ParsedColor { red, green, blue })
-        }
-        ("rgba", [red, green, blue, alpha]) => {
-            let red = parse_rgb_channel(red)?;
-            let green = parse_rgb_channel(green)?;
-            let blue = parse_rgb_channel(blue)?;
-            parse_alpha(alpha)?;
-            Some(ParsedColor { red, green, blue })
-        }
-        _ => None,
-    }
-}
-
-fn parse_rgb_channel(value: &str) -> Option<u8> {
-    if value.is_empty() || !value.chars().all(|c| c.is_ascii_digit()) {
-        return None;
-    }
-    value.parse::<u8>().ok()
-}
-
-fn parse_alpha(value: &str) -> Option<()> {
-    if value.is_empty() || value.starts_with('+') || value.starts_with('-') {
-        return None;
-    }
-    let alpha = value.parse::<f32>().ok()?;
-    (alpha.is_finite() && (0.0..=1.0).contains(&alpha)).then_some(())
 }
 
 fn css_alpha(alpha: f32) -> String {

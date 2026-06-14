@@ -22,6 +22,11 @@ struct IconCandidate {
 }
 
 pub fn fetch_and_cache_domain(paths: &RsclipPaths, domain: &str) -> Result<()> {
+    if !is_fetchable_domain(domain) {
+        write_miss(paths, domain)?;
+        bail!("skipping non-public favicon domain: {domain}");
+    }
+
     let origin = Url::parse(&format!("https://{domain}"))
         .with_context(|| format!("building favicon origin for {domain}"))?;
     fetch_and_cache_from_origin(paths, domain, &origin)
@@ -169,6 +174,29 @@ fn is_clearly_svg(value: &str) -> bool {
         .unwrap_or(value)
         .to_ascii_lowercase()
         .ends_with(".svg")
+}
+
+fn is_fetchable_domain(domain: &str) -> bool {
+    let labels = domain.split('.').collect::<Vec<_>>();
+    let Some(tld) = labels.last() else {
+        return false;
+    };
+
+    labels.len() >= 2
+        && labels.iter().all(|label| {
+            !label.is_empty()
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        })
+        && tld.len() >= 2
+        && tld.bytes().all(|byte| byte.is_ascii_alphabetic())
+        && !matches!(
+            *tld,
+            "home" | "internal" | "invalid" | "lan" | "local" | "test"
+        )
 }
 
 fn normalize_png(bytes: &[u8]) -> Result<Vec<u8>> {
@@ -394,5 +422,15 @@ mod tests {
         assert!(fetch_and_cache_from_origin(&paths, "example.test", &origin).is_err());
 
         assert!(rsclip_core::favicons::miss_path(&paths, "example.test").exists());
+    }
+
+    #[test]
+    fn rejects_non_public_favicon_domains() {
+        assert!(!is_fetchable_domain("localhost"));
+        assert!(!is_fetchable_domain("127.0.0.1"));
+        assert!(!is_fetchable_domain("example.1"));
+        assert!(!is_fetchable_domain("example.local"));
+        assert!(!is_fetchable_domain("example.test"));
+        assert!(is_fetchable_domain("example.com"));
     }
 }

@@ -59,22 +59,14 @@ pub(crate) fn install_change_listener(
                 }
             }
 
-            if changed {
-                *state.dirty.borrow_mut() = true;
-                if window.is_visible() {
-                    match refresh_entries_if_changed(&state) {
-                        Ok(()) => *state.dirty.borrow_mut() = false,
-                        Err(err) => set_footer(&state, &format!("Refresh failed: {err:#}")),
-                    }
-                }
+            if changed
+                && window.is_visible()
+                && let Err(err) = refresh_entries_if_changed(&state)
+            {
+                set_footer(&state, &format!("Refresh failed: {err:#}"));
             }
-            if favicons_changed {
-                if window.is_visible() {
-                    rerender_current_list(&state);
-                    *state.dirty.borrow_mut() = false;
-                } else {
-                    *state.dirty.borrow_mut() = true;
-                }
+            if favicons_changed && window.is_visible() {
+                rerender_current_list(&state);
             }
             gtk::glib::ControlFlow::Continue
         });

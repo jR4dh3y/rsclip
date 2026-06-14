@@ -1,6 +1,6 @@
 [package]
 name = "rsclip-ui"
-version = "0.1.9"
+version = "0.1.10"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,6 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-blake3.workspace = true
 chrono.workspace = true
 rsclip-core = { path = "../rsclip-core" }
 gdk-pixbuf.workspace = true

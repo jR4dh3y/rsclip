@@ -35,7 +35,6 @@ impl UiRuntime {
         sync_topbar_from_state(&self.state);
         update_mode_controls(&self.state);
         refresh_entries(&self.state)?;
-        *self.state.dirty.borrow_mut() = false;
 
         if self.state.reset_on_show.get() {
             self.state.list_adjustment.set_value(0.0);
@@ -157,7 +156,6 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         filter: RefCell::new(default_filter),
         sort: RefCell::new(default_sort),
         view: RefCell::new(default_view),
-        dirty: RefCell::new(false),
         prompt_active: RefCell::new(false),
         search_entry: topbar.search.clone(),
         filter_select: topbar.filter.clone(),

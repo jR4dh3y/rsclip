@@ -8,6 +8,15 @@ use crate::models::{EntryKind, NewEntry, NewEntryData};
 
 pub fn classify_payload(mime_type: &str, content_hash: String, payload: &[u8]) -> Result<NewEntry> {
     let size_bytes = i64::try_from(payload.len()).unwrap_or(i64::MAX);
+    if mime_type == "text/uri-list" {
+        let text = String::from_utf8_lossy(payload).to_string();
+        let mut entry = NewEntry::new(content_hash, mime_type.to_string(), first_line_title(&text));
+        entry.preview_text = Some(preview_text(&text));
+        entry.text_content = Some(text);
+        entry.size_bytes = size_bytes;
+        entry.data = NewEntryData::File { source_app: None };
+        return Ok(entry);
+    }
     if mime_type.starts_with("text/") {
         let text = String::from_utf8_lossy(payload).to_string();
         Ok(classify_text(mime_type, content_hash, text, size_bytes))
@@ -161,5 +170,13 @@ mod tests {
         if let NewEntryData::Color { value, .. } = entry.data {
             assert_eq!(value, "#c59edc");
         }
+    }
+
+    #[test]
+    fn classifies_uri_list_as_file() {
+        let entry =
+            classify_payload("text/uri-list", "hash".to_string(), b"file:///tmp/a.txt").unwrap();
+
+        assert!(matches!(entry.data, NewEntryData::File { .. }));
     }
 }

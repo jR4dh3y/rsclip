@@ -131,7 +131,6 @@ pub struct ClipboardEntry {
     pub preview_text: Option<String>,
     pub text_content: Option<String>,
     pub pinned: bool,
-    pub favorite: bool,
     pub copied_at: i64,
     pub updated_at: i64,
     pub last_used_at: Option<i64>,
@@ -152,7 +151,6 @@ impl ClipboardEntry {
             preview_text: None,
             text_content: None,
             pinned: false,
-            favorite: false,
             copied_at: 0,
             updated_at: 0,
             last_used_at: None,
@@ -173,7 +171,6 @@ impl ClipboardEntry {
             preview_text: None,
             text_content: None,
             pinned: false,
-            favorite: false,
             copied_at: 0,
             updated_at: 0,
             last_used_at: None,
@@ -198,7 +195,6 @@ impl ClipboardEntry {
             preview_text: None,
             text_content: None,
             pinned: false,
-            favorite: false,
             copied_at: 0,
             updated_at: 0,
             last_used_at: None,
@@ -223,7 +219,6 @@ impl ClipboardEntry {
             preview_text: None,
             text_content: None,
             pinned: false,
-            favorite: false,
             copied_at: 0,
             updated_at: 0,
             last_used_at: None,
@@ -309,7 +304,7 @@ pub enum SortMode {
 impl SortMode {
     pub fn parse(value: &str) -> Self {
         match value {
-            "recent" => Self::Recent,
+            "recent" | "newest" => Self::Recent,
             "oldest" => Self::Oldest,
             "type" => Self::Type,
             "most-used" => Self::MostUsed,

@@ -71,7 +71,6 @@ pub(super) fn entry_from_row(row: &Row<'_>) -> rusqlite::Result<ClipboardEntry> 
         preview_text: row.get("preview_text")?,
         text_content: row.get("text_content")?,
         pinned: row.get::<_, i64>("pinned")? != 0,
-        favorite: row.get::<_, i64>("favorite")? != 0,
         copied_at: row.get("copied_at")?,
         updated_at: row.get("updated_at")?,
         last_used_at: row.get("last_used_at")?,

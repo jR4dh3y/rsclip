@@ -254,4 +254,56 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
     }
+
+    #[test]
+    fn migration_adds_columns_to_existing_database() {
+        let path = temp_db_path();
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(
+                r#"
+                CREATE TABLE entries (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  content_hash TEXT NOT NULL UNIQUE,
+                  kind TEXT NOT NULL,
+                  mime_type TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  preview_text TEXT,
+                  text_content TEXT,
+                  pinned INTEGER NOT NULL DEFAULT 0,
+                  copied_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                );
+                INSERT INTO entries (
+                  content_hash, kind, mime_type, title, preview_text, text_content,
+                  copied_at, updated_at
+                )
+                VALUES ('old-hash', 'text', 'text/plain', 'old', 'old', 'old', 1, 1);
+
+                CREATE TABLE secrets (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  source_entry_id INTEGER UNIQUE,
+                  alias TEXT NOT NULL,
+                  value TEXT NOT NULL,
+                  created_at INTEGER NOT NULL,
+                  updated_at INTEGER NOT NULL
+                );
+                "#,
+            )
+            .unwrap();
+        }
+
+        let db = Database::open(&path).unwrap();
+        let entries = db
+            .list_entries("", EntryFilter::All, SortMode::Default, 10)
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title, "old");
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
 }

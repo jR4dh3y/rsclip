@@ -109,18 +109,10 @@ impl Default for OcrConfig {
     }
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct LinksConfig {
     #[serde(default)]
     pub favicon_cache: bool,
-}
-
-impl Default for LinksConfig {
-    fn default() -> Self {
-        Self {
-            favicon_cache: false,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

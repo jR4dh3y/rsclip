@@ -151,8 +151,6 @@ fn link_icon(favicon_icon_dir: &Path, domain: &str) -> gtk::Widget {
     let fallback = gtk::Label::new(Some(&domain_initial(domain)));
     fallback.add_css_class("link-favicon");
     fallback.add_css_class("favicon-fallback");
-    let color_class = install_domain_color_css(domain);
-    fallback.add_css_class(&color_class);
     fallback.set_width_request(FAVICON_SIZE);
     fallback.set_height_request(FAVICON_SIZE);
     fallback.set_halign(gtk::Align::Center);
@@ -184,28 +182,6 @@ fn domain_initial(domain: &str) -> String {
         .find_map(|label| label.chars().find(|ch| ch.is_ascii_alphanumeric()))
         .map(|ch| ch.to_ascii_uppercase().to_string())
         .unwrap_or_else(|| "?".to_string())
-}
-
-fn install_domain_color_css(domain: &str) -> String {
-    let key = domain_cache_key(domain);
-    let class = format!("favicon-color-{}", &key[..8]);
-    let hash = blake3::hash(domain.as_bytes());
-    let bytes = hash.as_bytes();
-    let red = 48 + (bytes[0] % 128);
-    let green = 48 + (bytes[1] % 128);
-    let blue = 48 + (bytes[2] % 128);
-    let css =
-        format!(".favicon-fallback.{class} {{ background: #{red:02x}{green:02x}{blue:02x}; }}");
-    let provider = gtk::CssProvider::new();
-    provider.load_from_data(&css);
-    if let Some(display) = gtk::gdk::Display::default() {
-        gtk::style_context_add_provider_for_display(
-            &display,
-            &provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
-    }
-    class
 }
 
 fn entry_icon_name(entry: &ClipboardEntry) -> &'static str {

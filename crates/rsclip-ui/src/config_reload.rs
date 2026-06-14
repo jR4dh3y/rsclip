@@ -75,8 +75,6 @@ fn reload_config(
         } else if outcome.rerender_current_list {
             rerender_current_list(state);
         }
-    } else if outcome.refresh_entries || outcome.rerender_current_list {
-        *state.dirty.borrow_mut() = true;
     }
 
     Ok(())
