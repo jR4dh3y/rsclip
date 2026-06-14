@@ -148,6 +148,16 @@ button.mode-button.active-mode label {
   margin: 2px 6px;
 }
 
+.virtual-spacer-row,
+.virtual-spacer-row:hover,
+.virtual-spacer-row:selected {
+  background: transparent;
+  background-color: transparent;
+  margin: 0;
+  min-height: 0;
+  padding: 0;
+}
+
 .entry-row-content {
   padding: 6px 8px;
 }

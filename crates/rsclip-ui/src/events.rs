@@ -7,23 +7,34 @@ use rsclip_core::models::{EntryFilter, EntryKind};
 
 use crate::actions::clipboard::{copy_secret, copy_selected_entry};
 use crate::actions::ocr::run_ocr_for_entry;
-use crate::actions::refresh::refresh_entries;
+use crate::actions::refresh::{refresh_entries, refresh_window_for_scroll};
 use crate::actions::secrets::{
     delete_current, rename_current_secret_dialog, save_current_as_secret_dialog, toggle_pin,
 };
 use crate::actions::selection::{mark_selected_row, move_selection};
 use crate::actions::{set_footer, update_mode_controls};
 use crate::components::preview::{render_preview, render_secret_preview};
-use crate::state::{AppState, AppView, current_entry, current_secret};
+use crate::state::{AppState, AppView, current_entry, current_secret, entry_at_row, secret_at_row};
 
 pub(crate) fn connect(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
     connect_mode_buttons(state);
     connect_ocr_button(state);
     connect_search(state);
     connect_filter(state);
+    connect_lazy_scroll(state);
     connect_list_selection(state);
     connect_list_activation(state, window);
     connect_keyboard(state, window);
+}
+
+fn connect_lazy_scroll(state: &Rc<AppState>) {
+    let adjustment = state.list_adjustment.clone();
+    let state = Rc::clone(state);
+    adjustment.connect_value_changed(move |_| {
+        if let Err(err) = refresh_window_for_scroll(&state) {
+            set_footer(&state, &format!("Scroll failed: {err:#}"));
+        }
+    });
 }
 
 fn connect_mode_buttons(state: &Rc<AppState>) {
@@ -130,13 +141,13 @@ fn connect_list_selection(state: &Rc<AppState>) {
             if index >= 0 {
                 match *state.view.borrow() {
                     AppView::Clipboard => {
-                        if let Some(entry) = state.entries.borrow().get(index as usize) {
-                            render_preview(&state, entry);
+                        if let Some(entry) = entry_at_row(&state, row) {
+                            render_preview(&state, &entry);
                         }
                     }
                     AppView::Secrets => {
-                        if let Some(secret) = state.secrets.borrow().get(index as usize) {
-                            render_secret_preview(&state, secret);
+                        if let Some(secret) = secret_at_row(&state, row) {
+                            render_secret_preview(&state, &secret);
                         }
                     }
                 }
@@ -151,7 +162,7 @@ fn connect_list_activation(state: &Rc<AppState>, window: &gtk::ApplicationWindow
     let window = window.clone();
     list.connect_row_activated(move |_, row| match *state.view.borrow() {
         AppView::Clipboard => {
-            if let Some(entry) = state.entries.borrow().get(row.index() as usize).cloned() {
+            if let Some(entry) = entry_at_row(&state, row) {
                 if let Err(err) = copy_selected_entry(&state, &entry) {
                     set_footer(&state, &format!("Paste failed: {err:#}"));
                     return;
@@ -160,7 +171,7 @@ fn connect_list_activation(state: &Rc<AppState>, window: &gtk::ApplicationWindow
             }
         }
         AppView::Secrets => {
-            if let Some(secret) = state.secrets.borrow().get(row.index() as usize).cloned() {
+            if let Some(secret) = secret_at_row(&state, row) {
                 if let Err(err) = copy_secret(&state, &secret) {
                     set_footer(&state, &format!("Copy failed: {err:#}"));
                     return;

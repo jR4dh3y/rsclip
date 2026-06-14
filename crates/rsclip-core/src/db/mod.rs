@@ -105,6 +105,8 @@ mod tests {
         let secrets = db.list_secrets("", 100).unwrap();
         assert_eq!(secrets.len(), 1);
         assert_eq!(secrets[0].id, secret_id);
+        assert_eq!(db.count_secrets("").unwrap(), 1);
+        assert_eq!(db.list_secrets_page("", 1, 0).unwrap()[0].id, secret_id);
 
         db.rename_secret(secret_id, "Renamed").unwrap();
         let secret = db.list_secrets("Renamed", 100).unwrap().remove(0);
@@ -150,6 +152,12 @@ mod tests {
             .unwrap();
 
         assert_eq!(entries.len(), 1005);
+        assert_eq!(db.count_entries("", EntryFilter::All).unwrap(), 1005);
+
+        let page = db
+            .list_entries_page("", EntryFilter::All, SortMode::Default, 25, 200)
+            .unwrap();
+        assert_eq!(page.len(), 25);
 
         drop(db);
         let _ = std::fs::remove_file(&path);

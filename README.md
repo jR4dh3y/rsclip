@@ -169,6 +169,12 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.9
+
+- Switched the resident UI history list to DB-backed virtual scrolling for large histories.
+- Kept only the visible list window plus nearby rows mounted while preserving full-history totals.
+- Added paged SQLite reads and count queries for clipboard and secret search results.
+
 ### v0.1.8
 
 - Added `~/.config/rsclip/config.toml` support for history, paste, OCR, UI, color, and favicon settings.
@@ -181,7 +187,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.8`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.9`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.8` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.9` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.

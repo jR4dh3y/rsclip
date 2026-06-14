@@ -9,6 +9,15 @@ use super::{Database, rows::secret_from_row};
 
 impl Database {
     pub fn list_secrets(&self, query: &str, limit: usize) -> Result<Vec<SecretEntry>> {
+        self.list_secrets_page(query, limit, 0)
+    }
+
+    pub fn list_secrets_page(
+        &self,
+        query: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<SecretEntry>> {
         let has_query = !query.trim().is_empty();
         let mut sql = String::from(
             r#"
@@ -22,19 +31,42 @@ impl Database {
         if has_query {
             sql.push_str(" AND alias LIKE ?1");
         }
-        sql.push_str(" ORDER BY updated_at DESC LIMIT ");
-        sql.push_str(&limit.min(1000).to_string());
+        if has_query {
+            sql.push_str(" ORDER BY updated_at DESC LIMIT ?2 OFFSET ?3");
+        } else {
+            sql.push_str(" ORDER BY updated_at DESC LIMIT ?1 OFFSET ?2");
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = if has_query {
             let pattern = format!("%{}%", query.trim());
-            stmt.query_map(params![pattern], secret_from_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
+            stmt.query_map(
+                params![pattern, limit as i64, offset as i64],
+                secret_from_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?
         } else {
-            stmt.query_map([], secret_from_row)?
+            stmt.query_map(params![limit as i64, offset as i64], secret_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
         Ok(rows)
+    }
+
+    pub fn count_secrets(&self, query: &str) -> Result<usize> {
+        let has_query = !query.trim().is_empty();
+        let mut sql = String::from("SELECT COUNT(*) FROM secrets WHERE deleted = 0");
+        if has_query {
+            sql.push_str(" AND alias LIKE ?1");
+        }
+
+        let count = if has_query {
+            let pattern = format!("%{}%", query.trim());
+            self.conn
+                .query_row(&sql, params![pattern], |row| row.get::<_, i64>(0))?
+        } else {
+            self.conn.query_row(&sql, [], |row| row.get::<_, i64>(0))?
+        };
+        Ok(count.max(0) as usize)
     }
 
     pub fn save_secret(

@@ -123,6 +123,17 @@ impl Database {
         sort: SortMode,
         limit: usize,
     ) -> Result<Vec<ClipboardEntry>> {
+        self.list_entries_page(query, filter, sort, limit, 0)
+    }
+
+    pub fn list_entries_page(
+        &self,
+        query: &str,
+        filter: EntryFilter,
+        sort: SortMode,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<ClipboardEntry>> {
         let mut sql = String::from(
             r#"
             SELECT
@@ -137,48 +148,58 @@ impl Database {
             "#,
         );
 
-        sql.push_str(match filter {
-            EntryFilter::All => "",
-            EntryFilter::Text => " AND e.kind = 'text'",
-            EntryFilter::Images => " AND e.kind = 'image'",
-            EntryFilter::Links => " AND e.kind = 'link'",
-            EntryFilter::Colors => " AND e.kind = 'color'",
-            EntryFilter::Pinned => " AND e.pinned = 1",
-        });
-
+        append_entry_filter(&mut sql, filter);
         let has_query = !query.trim().is_empty();
         if has_query {
-            sql.push_str(
-                r#"
-                AND (
-                  e.title LIKE ?1 OR e.preview_text LIKE ?1 OR e.text_content LIKE ?1
-                  OR e.link_url LIKE ?1 OR e.link_domain LIKE ?1 OR e.color_value LIKE ?1
-                  OR o.text LIKE ?1
-                )
-                "#,
-            );
+            append_entry_search(&mut sql);
         }
 
-        sql.push_str(match sort {
-            SortMode::Default => " ORDER BY e.pinned DESC, e.updated_at DESC",
-            SortMode::Recent => " ORDER BY e.updated_at DESC",
-            SortMode::Oldest => " ORDER BY e.updated_at ASC",
-            SortMode::Type => " ORDER BY e.kind ASC, e.updated_at DESC",
-            SortMode::MostUsed => " ORDER BY e.use_count DESC, e.updated_at DESC",
-        });
-        sql.push_str(" LIMIT ");
-        sql.push_str(&limit.to_string());
+        sql.push_str(entry_order(sort));
+        if has_query {
+            sql.push_str(" LIMIT ?2 OFFSET ?3");
+        } else {
+            sql.push_str(" LIMIT ?1 OFFSET ?2");
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = if has_query {
             let pattern = format!("%{}%", query.trim());
-            stmt.query_map(params![pattern], entry_from_row)?
-                .collect::<rusqlite::Result<Vec<_>>>()?
+            stmt.query_map(
+                params![pattern, limit as i64, offset as i64],
+                entry_from_row,
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?
         } else {
-            stmt.query_map([], entry_from_row)?
+            stmt.query_map(params![limit as i64, offset as i64], entry_from_row)?
                 .collect::<rusqlite::Result<Vec<_>>>()?
         };
         Ok(rows)
+    }
+
+    pub fn count_entries(&self, query: &str, filter: EntryFilter) -> Result<usize> {
+        let mut sql = String::from(
+            r#"
+            SELECT COUNT(*)
+            FROM entries e
+            LEFT JOIN ocr_results o ON o.entry_id = e.id
+            WHERE e.deleted = 0
+            "#,
+        );
+
+        append_entry_filter(&mut sql, filter);
+        let has_query = !query.trim().is_empty();
+        if has_query {
+            append_entry_search(&mut sql);
+        }
+
+        let count = if has_query {
+            let pattern = format!("%{}%", query.trim());
+            self.conn
+                .query_row(&sql, params![pattern], |row| row.get::<_, i64>(0))?
+        } else {
+            self.conn.query_row(&sql, [], |row| row.get::<_, i64>(0))?
+        };
+        Ok(count.max(0) as usize)
     }
 
     pub fn list_link_domains(&self) -> Result<Vec<String>> {
@@ -262,5 +283,38 @@ impl Database {
             params![cutoff, Utc::now().timestamp()],
         )?;
         Ok(deleted)
+    }
+}
+
+fn append_entry_filter(sql: &mut String, filter: EntryFilter) {
+    sql.push_str(match filter {
+        EntryFilter::All => "",
+        EntryFilter::Text => " AND e.kind = 'text'",
+        EntryFilter::Images => " AND e.kind = 'image'",
+        EntryFilter::Links => " AND e.kind = 'link'",
+        EntryFilter::Colors => " AND e.kind = 'color'",
+        EntryFilter::Pinned => " AND e.pinned = 1",
+    });
+}
+
+fn append_entry_search(sql: &mut String) {
+    sql.push_str(
+        r#"
+        AND (
+          e.title LIKE ?1 OR e.preview_text LIKE ?1 OR e.text_content LIKE ?1
+          OR e.link_url LIKE ?1 OR e.link_domain LIKE ?1 OR e.color_value LIKE ?1
+          OR o.text LIKE ?1
+        )
+        "#,
+    );
+}
+
+fn entry_order(sort: SortMode) -> &'static str {
+    match sort {
+        SortMode::Default => " ORDER BY e.pinned DESC, e.updated_at DESC",
+        SortMode::Recent => " ORDER BY e.updated_at DESC",
+        SortMode::Oldest => " ORDER BY e.updated_at ASC",
+        SortMode::Type => " ORDER BY e.kind ASC, e.updated_at DESC",
+        SortMode::MostUsed => " ORDER BY e.use_count DESC, e.updated_at DESC",
     }
 }

@@ -3,24 +3,38 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk4 as gtk;
 
-use crate::state::{AppState, AppView};
+use crate::actions::refresh::ensure_row_rendered;
+use crate::actions::set_footer;
+use crate::state::{
+    AppState, AppView, current_entry_index, current_secret_index, row_index_for_entry,
+    row_index_for_secret,
+};
 
 pub(crate) fn move_selection(state: &Rc<AppState>, delta: i32) {
     let count = match *state.view.borrow() {
-        AppView::Clipboard => state.entries.borrow().len() as i32,
-        AppView::Secrets => state.secrets.borrow().len() as i32,
+        AppView::Clipboard => state.entries_total.get() as i32,
+        AppView::Secrets => state.secrets_total.get() as i32,
     };
     if count == 0 {
         return;
     }
 
-    let current = state
-        .list
-        .selected_row()
-        .map(|row| row.index())
-        .unwrap_or(0);
+    let current = match *state.view.borrow() {
+        AppView::Clipboard => current_entry_index(state),
+        AppView::Secrets => current_secret_index(state),
+    }
+    .unwrap_or(0) as i32;
     let next = (current + delta).clamp(0, count - 1);
-    if let Some(row) = state.list.row_at_index(next) {
+    if let Err(err) = ensure_row_rendered(state, next as usize) {
+        set_footer(state, &format!("Selection failed: {err:#}"));
+        return;
+    }
+
+    let row_index = match *state.view.borrow() {
+        AppView::Clipboard => row_index_for_entry(state, next as usize),
+        AppView::Secrets => row_index_for_secret(state, next as usize),
+    };
+    if let Some(row) = row_index.and_then(|index| state.list.row_at_index(index)) {
         state.list.select_row(Some(&row));
         scroll_row_into_view(state, &row);
     }
