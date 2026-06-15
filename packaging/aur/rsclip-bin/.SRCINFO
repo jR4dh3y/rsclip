@@ -15,6 +15,6 @@ pkgbase = rsclip-bin
 	provides = rsclip
 	conflicts = rsclip
 	source = rsclip-bin-0.1.11.tar.zst::https://github.com/jR4dh3y/rsclip/releases/download/v0.1.11/rsclip-0.1.11-x86_64.tar.zst
-	sha256sums = 1d8235adba579b374cceb1fc79590abf2d0d295a9db3c7a6a2588594bdd5484d
+	sha256sums = c014ea719b81411b70b9d641b4d0c9117d98fa3ca0a0adbcd65ae12b44e3a063
 
 pkgname = rsclip-bin
