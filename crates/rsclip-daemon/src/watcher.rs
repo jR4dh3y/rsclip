@@ -9,6 +9,7 @@ use tracing::{error, info, warn};
 
 pub fn run_watchers() -> Result<()> {
     require_command("wl-paste")?;
+    require_wayland_display()?;
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
     let config = AppConfig::load(&paths)?;
@@ -132,7 +133,7 @@ impl Watcher {
             .arg("--mime")
             .arg(self.mime_type)
             .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
+            .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()
             .with_context(|| format!("spawning {} wl-paste watcher", self.label))?;
@@ -161,5 +162,26 @@ fn require_command(command: &str) -> Result<()> {
     if !status.success() {
         bail!("{command} is required but was not found in PATH");
     }
+    Ok(())
+}
+
+fn require_wayland_display() -> Result<()> {
+    let Some(display) = std::env::var_os("WAYLAND_DISPLAY") else {
+        bail!(
+            "WAYLAND_DISPLAY is not set; import the compositor environment before starting rsclipd"
+        );
+    };
+    let Some(runtime_dir) = std::env::var_os("XDG_RUNTIME_DIR") else {
+        bail!("XDG_RUNTIME_DIR is not set; cannot locate the Wayland socket");
+    };
+
+    let socket_path = std::path::PathBuf::from(runtime_dir).join(&display);
+    if !socket_path.exists() {
+        bail!(
+            "Wayland socket {} does not exist; restart rsclipd after updating WAYLAND_DISPLAY",
+            socket_path.display()
+        );
+    }
+
     Ok(())
 }

@@ -169,6 +169,12 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.11
+
+- Failed `rsclipd watch` fast when the Wayland session environment is missing or stale.
+- Skipped starting the packaged user service when `WAYLAND_DISPLAY` is absent.
+- Kept watcher-triggered store IDs out of the systemd journal.
+
 ### v0.1.10
 
 - Treated `text/uri-list` clipboard payloads as file entries instead of plain text.
@@ -195,7 +201,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.10`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.11`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.10` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.11` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.
