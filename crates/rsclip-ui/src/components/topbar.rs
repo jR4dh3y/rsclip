@@ -29,8 +29,9 @@ pub(crate) fn build(search_placeholder: &str) -> Topbar {
     search.set_hexpand(true);
     container.append(&search);
 
-    let filter =
-        gtk::DropDown::from_strings(&["All", "Text", "Images", "Links", "Colors", "Pinned"]);
+    let filter = gtk::DropDown::from_strings(&[
+        "All", "Text", "Images", "Files", "Links", "Colors", "Pinned",
+    ]);
     filter.add_css_class("filter-select");
     filter.set_selected(0);
     container.append(&filter);

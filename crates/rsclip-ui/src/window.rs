@@ -262,8 +262,9 @@ pub(crate) fn filter_index(filter: EntryFilter) -> u32 {
         EntryFilter::All => 0,
         EntryFilter::Text => 1,
         EntryFilter::Images => 2,
-        EntryFilter::Links => 3,
-        EntryFilter::Colors => 4,
-        EntryFilter::Pinned => 5,
+        EntryFilter::Files => 3,
+        EntryFilter::Links => 4,
+        EntryFilter::Colors => 5,
+        EntryFilter::Pinned => 6,
     }
 }

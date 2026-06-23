@@ -4,6 +4,7 @@ pub mod colors;
 pub mod config;
 pub mod db;
 pub mod favicons;
+pub mod files;
 pub mod format;
 pub mod links;
 pub mod mime;

@@ -128,6 +128,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_files_filter() {
+        let args = make_args(&["--filter", "files"]);
+        let parsed = parse_list_entries_args(&args);
+
+        assert_eq!(parsed.filter, EntryFilter::Files);
+    }
+
+    #[test]
     fn parses_positional_ids() {
         let args = make_args(&["42", "--off"]);
         assert_eq!(positional_i64(&args, 0, "entry id").unwrap(), 42);

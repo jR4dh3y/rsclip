@@ -4,10 +4,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use rsclip_core::cli::option_value;
 use rsclip_core::favicons;
+use rsclip_core::files::normalize_path_or_uri_list;
 use rsclip_core::notify::notify_changed;
 use rsclip_core::storage::{content_hash, store_image};
 use rsclip_core::{AppConfig, Database, NewEntryData, RsclipPaths, classify_payload};
 use tracing::{info, warn};
+
+const FILE_TEXT_DUPLICATE_WINDOW_SECS: i64 = 5;
 
 pub fn run(args: &[String]) -> Result<()> {
     let mime_type = option_value(args, "--mime").unwrap_or("text/plain");
@@ -31,6 +34,11 @@ pub fn run(args: &[String]) -> Result<()> {
     }
 
     let db = Database::open(&paths.db_path)?;
+    if should_skip_text_file_duplicate(mime_type, &payload, &db)? {
+        info!("skipping text/plain duplicate for recent file clipboard entry");
+        return Ok(());
+    }
+
     let hash = content_hash(&payload);
     let entry_hash = if config.history.dedupe {
         hash.clone()
@@ -79,6 +87,21 @@ pub fn run(args: &[String]) -> Result<()> {
     notify_changed(&paths);
     println!("{id}");
     Ok(())
+}
+
+fn should_skip_text_file_duplicate(mime_type: &str, payload: &[u8], db: &Database) -> Result<bool> {
+    if mime_type != "text/plain" {
+        return Ok(false);
+    }
+
+    let Ok(text) = std::str::from_utf8(payload) else {
+        return Ok(false);
+    };
+    let Some(normalized_uri_list) = normalize_path_or_uri_list(text) else {
+        return Ok(false);
+    };
+
+    db.has_recent_file_uri_list(&normalized_uri_list, FILE_TEXT_DUPLICATE_WINDOW_SECS)
 }
 
 fn payload_limit(mime_type: &str, config: &AppConfig) -> Option<usize> {

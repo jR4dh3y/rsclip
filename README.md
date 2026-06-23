@@ -8,9 +8,9 @@ and is activated by later `rsclip` invocations.
 
 ## Current scope
 
-- SQLite-backed text and image history.
+- SQLite-backed text, image, and file-reference history.
 - `rsclipd store --mime ...` for manual or watcher-driven ingestion.
-- `rsclipd watch` to spawn `wl-paste --watch` text and PNG watchers.
+- `rsclipd watch` to spawn `wl-paste --watch` text, PNG, and URI-list watchers.
 - Text, link, and color classification.
 - Image payload storage under XDG data directories.
 - Resident GTK4 history window with search, filters, preview, copy, and auto-paste.
@@ -40,8 +40,13 @@ Manual storage:
 
 ```bash
 printf 'hello from rsclip' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/plain
+printf 'file:///tmp/a.txt\r\n' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/uri-list
 cargo run -p rsclip-daemon --bin rsclipd -- list
+cargo run -p rsclip-daemon --bin rsclipd -- list --filter files
 ```
+
+File entries store URI references, not file contents. The original files or directories must still
+exist when the entry is restored and pasted.
 
 Run the watcher:
 
@@ -171,6 +176,7 @@ rsclipd favicons clear
 
 ### v0.1.11
 
+- Added file-copy history for local `text/uri-list` clipboard entries, restored as file clipboard data.
 - Failed `rsclipd watch` fast when the Wayland session environment is missing or stale.
 - Skipped starting the packaged user service when `WAYLAND_DISPLAY` is absent.
 - Kept watcher-triggered store IDs out of the systemd journal.

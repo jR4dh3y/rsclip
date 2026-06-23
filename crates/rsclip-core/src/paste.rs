@@ -9,10 +9,24 @@ use anyhow::{Context, Result, bail};
 use crate::models::{ClipboardEntry, EntryData};
 
 pub fn copy_entry(entry: &ClipboardEntry) -> Result<()> {
+    copy_entry_with_writer(entry, write_clipboard)
+}
+
+fn copy_entry_with_writer(
+    entry: &ClipboardEntry,
+    mut write: impl FnMut(&str, &[u8]) -> Result<()>,
+) -> Result<()> {
     match &entry.data {
         EntryData::Image { file_path, .. } => {
             let bytes = fs::read(file_path).with_context(|| format!("reading {file_path}"))?;
-            write_clipboard(&entry.mime_type, &bytes)
+            write(&entry.mime_type, &bytes)
+        }
+        EntryData::File { .. } => {
+            let text = entry
+                .text_content
+                .as_deref()
+                .context("file entry has no URI-list content")?;
+            write("text/uri-list", text.as_bytes())
         }
         _ => {
             let text = entry
@@ -20,7 +34,7 @@ pub fn copy_entry(entry: &ClipboardEntry) -> Result<()> {
                 .as_deref()
                 .or(entry.preview_text.as_deref())
                 .context("entry has no text content")?;
-            write_clipboard("text/plain", text.as_bytes())
+            write("text/plain", text.as_bytes())
         }
     }
 }
@@ -84,4 +98,37 @@ fn trigger_paste_wtype() -> Result<()> {
         bail!("wtype exited with {status}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copy_entry_with_writer;
+    use crate::models::ClipboardEntry;
+
+    #[test]
+    fn file_entry_writes_uri_list_mime_and_bytes() {
+        let entry = ClipboardEntry::test_file(1, "a.txt", Some("file:///tmp/a.txt\r\n"));
+        let mut writes = Vec::new();
+
+        copy_entry_with_writer(&entry, |mime, bytes| {
+            writes.push((mime.to_string(), bytes.to_vec()));
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].0, "text/uri-list");
+        assert_eq!(writes[0].1, b"file:///tmp/a.txt\r\n");
+    }
+
+    #[test]
+    fn file_entry_without_text_content_returns_clear_error() {
+        let entry = ClipboardEntry::test_file(1, "a.txt", None);
+        let err = copy_entry_with_writer(&entry, |_, _| Ok(())).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("file entry has no URI-list content")
+        );
+    }
 }
