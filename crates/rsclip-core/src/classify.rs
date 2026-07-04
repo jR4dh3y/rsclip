@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::colors::{parse_color, rgb_text};
+use crate::files::{normalize_uri_list, parse_uri_list, uri_list_preview, uri_list_title};
 use crate::format::human_bytes;
 use crate::links::detect_single_url;
 use crate::mime::kind_from_mime;
@@ -10,12 +11,15 @@ pub fn classify_payload(mime_type: &str, content_hash: String, payload: &[u8]) -
     let size_bytes = i64::try_from(payload.len()).unwrap_or(i64::MAX);
     if mime_type == "text/uri-list" {
         let text = String::from_utf8_lossy(payload).to_string();
-        let mut entry = NewEntry::new(content_hash, mime_type.to_string(), first_line_title(&text));
-        entry.preview_text = Some(preview_text(&text));
-        entry.text_content = Some(text);
-        entry.size_bytes = size_bytes;
-        entry.data = NewEntryData::File { source_app: None };
-        return Ok(entry);
+        return Ok(
+            classify_uri_list(content_hash.clone(), text.clone(), size_bytes)
+                .unwrap_or_else(|| classify_text(mime_type, content_hash, text, size_bytes)),
+        );
+    }
+    if mime_type == "x-special/gnome-copied-files" {
+        let text = String::from_utf8_lossy(payload).to_string();
+        return Ok(classify_gnome_copied_files(content_hash.clone(), &text)
+            .unwrap_or_else(|| classify_text(mime_type, content_hash, text, size_bytes)));
     }
     if mime_type.starts_with("text/") {
         let text = String::from_utf8_lossy(payload).to_string();
@@ -39,6 +43,49 @@ pub fn classify_payload(mime_type: &str, content_hash: String, payload: &[u8]) -
         entry.size_bytes = size_bytes;
         entry.data = data;
         Ok(entry)
+    }
+}
+
+fn classify_uri_list(
+    content_hash: String,
+    text: String,
+    fallback_size_bytes: i64,
+) -> Option<NewEntry> {
+    if parse_uri_list(&text).is_empty() {
+        return None;
+    }
+
+    let normalized = normalize_uri_list(&text);
+    let mut entry = NewEntry::new(
+        content_hash,
+        "text/uri-list".to_string(),
+        uri_list_title(&normalized),
+    );
+    entry.preview_text = Some(uri_list_preview(&normalized));
+    entry.text_content = Some(normalized.clone());
+    entry.size_bytes = i64::try_from(normalized.len()).unwrap_or(fallback_size_bytes);
+    entry.data = NewEntryData::File { source_app: None };
+    Some(entry)
+}
+
+fn classify_gnome_copied_files(content_hash: String, text: &str) -> Option<NewEntry> {
+    let uri_list = strip_gnome_copy_action(text);
+    classify_uri_list(
+        content_hash,
+        uri_list.to_string(),
+        i64::try_from(text.len()).unwrap_or(i64::MAX),
+    )
+}
+
+fn strip_gnome_copy_action(text: &str) -> &str {
+    let Some((first, rest)) = text.split_once('\n') else {
+        return text;
+    };
+
+    if matches!(first.trim_end_matches('\r'), "copy" | "cut") {
+        rest
+    } else {
+        text
     }
 }
 
@@ -175,8 +222,50 @@ mod tests {
     #[test]
     fn classifies_uri_list_as_file() {
         let entry =
-            classify_payload("text/uri-list", "hash".to_string(), b"file:///tmp/a.txt").unwrap();
+            classify_payload("text/uri-list", "hash".to_string(), b"file:///tmp/a.txt\n").unwrap();
 
         assert!(matches!(entry.data, NewEntryData::File { .. }));
+        assert_eq!(entry.mime_type, "text/uri-list");
+        assert_eq!(entry.title, "a.txt");
+        assert_eq!(entry.preview_text.as_deref(), Some("/tmp/a.txt"));
+        assert_eq!(entry.text_content.as_deref(), Some("file:///tmp/a.txt\r\n"));
+        assert_eq!(entry.size_bytes, "file:///tmp/a.txt\r\n".len() as i64);
+    }
+
+    #[test]
+    fn classifies_gnome_copy_payload_as_file() {
+        let entry = classify_payload(
+            "x-special/gnome-copied-files",
+            "hash".to_string(),
+            b"copy\nfile:///tmp/a.txt\n",
+        )
+        .unwrap();
+
+        assert!(matches!(entry.data, NewEntryData::File { .. }));
+        assert_eq!(entry.mime_type, "text/uri-list");
+        assert_eq!(entry.text_content.as_deref(), Some("file:///tmp/a.txt\r\n"));
+    }
+
+    #[test]
+    fn classifies_gnome_cut_payload_as_copyable_file() {
+        let entry = classify_payload(
+            "x-special/gnome-copied-files",
+            "hash".to_string(),
+            b"cut\nfile:///tmp/a.txt\n",
+        )
+        .unwrap();
+
+        assert!(matches!(entry.data, NewEntryData::File { .. }));
+        assert_eq!(entry.mime_type, "text/uri-list");
+        assert_eq!(entry.text_content.as_deref(), Some("file:///tmp/a.txt\r\n"));
+    }
+
+    #[test]
+    fn invalid_uri_list_falls_back_to_text_classification() {
+        let entry = classify_payload("text/uri-list", "hash".to_string(), b"not a uri").unwrap();
+
+        assert!(matches!(entry.data, NewEntryData::Text));
+        assert_eq!(entry.mime_type, "text/uri-list");
+        assert_eq!(entry.text_content.as_deref(), Some("not a uri"));
     }
 }

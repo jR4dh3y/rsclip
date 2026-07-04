@@ -4,6 +4,7 @@ use gtk::gdk;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::colors::parse_color;
+use rsclip_core::files::parse_uri_list;
 use rsclip_core::format::masked_secret;
 use rsclip_core::models::{ClipboardEntry, EntryData, SecretEntry};
 
@@ -150,7 +151,8 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         EntryData::Link { url, .. } => {
             render_text_preview(&state.preview, Some(url));
         }
-        EntryData::Text | EntryData::File { .. } | EntryData::Unknown => {
+        EntryData::File { .. } => render_file_preview(state, entry),
+        EntryData::Text | EntryData::Unknown => {
             render_text_preview(
                 &state.preview,
                 entry
@@ -202,6 +204,66 @@ fn render_image_preview(container: &gtk::Box, entry: &ClipboardEntry) {
         }
     } else {
         container.append(&muted_label("Image file is missing"));
+    }
+}
+
+fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
+    let Some(payload) = entry.text_content.as_deref() else {
+        state
+            .preview
+            .append(&muted_label("File list is unavailable"));
+        return;
+    };
+    let files = parse_uri_list(payload);
+    if files.is_empty() {
+        render_text_preview(&state.preview, Some(payload));
+        return;
+    }
+
+    let paths = files
+        .iter()
+        .map(|file| file.path.to_string_lossy().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let missing_count = files.iter().filter(|file| !file.path.exists()).count();
+
+    let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    header.set_hexpand(true);
+
+    let title = section_label("Files");
+    title.set_hexpand(true);
+    header.append(&title);
+
+    let mut status = file_count_label(files.len());
+    if missing_count > 0 {
+        status.push_str(&format!(", {missing_count} missing"));
+    }
+    header.append(&muted_label(&status));
+
+    let copy = gtk::Button::with_label("Copy paths");
+    copy.add_css_class("primary-button");
+    {
+        let state = Rc::clone(state);
+        let paths = paths.clone();
+        copy.connect_clicked(move |_| {
+            if let Err(err) = crate::actions::clipboard::copy_text(&paths) {
+                crate::actions::set_footer(&state, &format!("Copy paths failed: {err:#}"));
+            } else {
+                crate::actions::set_footer(&state, "Copied paths");
+            }
+        });
+    }
+    header.append(&copy);
+    state.preview.append(&header);
+
+    render_text_preview(&state.preview, Some(&paths));
+}
+
+fn file_count_label(count: usize) -> String {
+    if count == 1 {
+        "1 file".to_string()
+    } else {
+        format!("{count} files")
     }
 }
 

@@ -120,9 +120,10 @@ fn connect_filter(state: &Rc<AppState>) {
         *state.filter.borrow_mut() = match dropdown.selected() {
             1 => EntryFilter::Text,
             2 => EntryFilter::Images,
-            3 => EntryFilter::Links,
-            4 => EntryFilter::Colors,
-            5 => EntryFilter::Pinned,
+            3 => EntryFilter::Files,
+            4 => EntryFilter::Links,
+            5 => EntryFilter::Colors,
+            6 => EntryFilter::Pinned,
             _ => EntryFilter::All,
         };
         if let Err(err) = refresh_entries(&state) {
@@ -268,19 +269,13 @@ fn connect_keyboard(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
                 }
                 (gdk::Key::i | gdk::Key::I, true) => {
                     if *state.view.borrow() == AppView::Clipboard {
-                        *state.filter.borrow_mut() = EntryFilter::Images;
-                        if let Err(err) = refresh_entries(&state) {
-                            set_footer(&state, &format!("Filter failed: {err:#}"));
-                        }
+                        set_filter(&state, EntryFilter::Images);
                     }
                     gtk::glib::Propagation::Stop
                 }
                 (gdk::Key::l | gdk::Key::L, true) => {
                     if *state.view.borrow() == AppView::Clipboard {
-                        *state.filter.borrow_mut() = EntryFilter::Links;
-                        if let Err(err) = refresh_entries(&state) {
-                            set_footer(&state, &format!("Filter failed: {err:#}"));
-                        }
+                        set_filter(&state, EntryFilter::Links);
                     }
                     gtk::glib::Propagation::Stop
                 }
@@ -293,6 +288,16 @@ fn connect_keyboard(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
         });
     }
     window.add_controller(controller);
+}
+
+fn set_filter(state: &Rc<AppState>, filter: EntryFilter) {
+    *state.filter.borrow_mut() = filter;
+    let selected = crate::window::filter_index(filter);
+    let dropdown_changed = state.filter_select.selected() != selected;
+    state.filter_select.set_selected(selected);
+    if !dropdown_changed && let Err(err) = refresh_entries(state) {
+        set_footer(state, &format!("Filter failed: {err:#}"));
+    }
 }
 
 fn handle_enter(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {

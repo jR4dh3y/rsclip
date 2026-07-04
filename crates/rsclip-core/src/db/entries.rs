@@ -220,6 +220,30 @@ impl Database {
         Ok(domains)
     }
 
+    pub fn has_recent_file_uri_list(
+        &self,
+        normalized_uri_list: &str,
+        window_seconds: i64,
+    ) -> Result<bool> {
+        let cutoff = Utc::now().timestamp() - window_seconds.max(0);
+        let exists = self.conn.query_row(
+            r#"
+            SELECT EXISTS(
+              SELECT 1
+                FROM entries
+               WHERE deleted = 0
+                 AND kind = 'file'
+                 AND mime_type = 'text/uri-list'
+                 AND text_content = ?1
+                 AND updated_at >= ?2
+            )
+            "#,
+            params![normalized_uri_list, cutoff],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(exists != 0)
+    }
+
     pub fn get_entry(&self, id: i64) -> Result<Option<ClipboardEntry>> {
         self.conn
             .query_row(
@@ -291,6 +315,7 @@ fn append_entry_filter(sql: &mut String, filter: EntryFilter) {
         EntryFilter::All => "",
         EntryFilter::Text => " AND e.kind = 'text'",
         EntryFilter::Images => " AND e.kind = 'image'",
+        EntryFilter::Files => " AND e.kind = 'file'",
         EntryFilter::Links => " AND e.kind = 'link'",
         EntryFilter::Colors => " AND e.kind = 'color'",
         EntryFilter::Pinned => " AND e.pinned = 1",

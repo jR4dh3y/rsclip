@@ -1,17 +1,23 @@
 use gtk::prelude::*;
 use gtk4 as gtk;
+use rsclip_core::files::{parse_uri_list, uri_list_missing_count};
 use rsclip_core::format::{format_full_time, human_size};
-use rsclip_core::models::{ClipboardEntry, SecretEntry};
+use rsclip_core::models::{ClipboardEntry, EntryData, SecretEntry};
 
 use crate::components::labels::muted_label;
 
 pub(crate) fn render_details(container: &gtk::Box, entry: &ClipboardEntry) {
-    let rows = [
-        ("Type", entry.kind.to_string()),
+    let mut rows = vec![("Type", entry.kind.to_string())];
+    if let EntryData::File { .. } = &entry.data {
+        let payload = entry.text_content.as_deref().unwrap_or("");
+        rows.push(("Files", parse_uri_list(payload).len().to_string()));
+        rows.push(("Missing", uri_list_missing_count(payload).to_string()));
+    }
+    rows.extend([
         ("MIME", entry.mime_type.clone()),
         ("Size", human_size(entry.size_bytes)),
         ("First copied", format_full_time(entry.copied_at)),
-    ];
+    ]);
     render_rows(container, &rows);
 }
 

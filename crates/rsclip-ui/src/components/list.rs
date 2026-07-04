@@ -3,6 +3,7 @@ use std::path::Path;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::favicons::domain_cache_key;
+use rsclip_core::files::parse_uri_list;
 use rsclip_core::format::relative_time;
 use rsclip_core::models::{ClipboardEntry, EntryData, EntryKind, SecretEntry};
 
@@ -210,5 +211,33 @@ fn entry_kind_label(entry: &ClipboardEntry) -> &'static str {
 }
 
 fn subtitle(entry: &ClipboardEntry) -> String {
+    if let EntryData::File { .. } = &entry.data
+        && let Some(subtitle) = file_subtitle(entry)
+    {
+        return subtitle;
+    }
+
     relative_time(entry.updated_at)
+}
+
+fn file_subtitle(entry: &ClipboardEntry) -> Option<String> {
+    let files = parse_uri_list(entry.text_content.as_deref()?);
+    if files.is_empty() {
+        return None;
+    }
+
+    let missing = files.iter().filter(|file| !file.path.exists()).count();
+    let mut subtitle = file_count_label(files.len());
+    if missing > 0 {
+        subtitle.push_str(&format!(", {missing} missing"));
+    }
+    Some(subtitle)
+}
+
+fn file_count_label(count: usize) -> String {
+    if count == 1 {
+        "1 file".to_string()
+    } else {
+        format!("{count} files")
+    }
 }

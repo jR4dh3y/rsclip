@@ -21,9 +21,16 @@ pub(crate) struct UiRuntime {
 }
 
 impl UiRuntime {
+    pub(crate) fn preload(&self) -> Result<()> {
+        sync_topbar_from_state(&self.state);
+        update_mode_controls(&self.state);
+        refresh_entries(&self.state)
+    }
+
     pub(crate) fn show_reset(&self) -> Result<()> {
         use gtk4_layer_shell::{KeyboardMode, LayerShell};
 
+        let reset_on_show = self.state.reset_on_show.get();
         if self.state.reset_on_show.get() {
             *self.state.view.borrow_mut() = self.state.default_view.get();
             *self.state.query.borrow_mut() = String::new();
@@ -34,14 +41,6 @@ impl UiRuntime {
 
         sync_topbar_from_state(&self.state);
         update_mode_controls(&self.state);
-        refresh_entries(&self.state)?;
-
-        if self.state.reset_on_show.get() {
-            self.state.list_adjustment.set_value(0.0);
-            if let Some(row) = self.state.list.row_at_index(0) {
-                self.state.list.select_row(Some(&row));
-            }
-        }
 
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
         self.window.set_visible(true);
@@ -49,6 +48,7 @@ impl UiRuntime {
         if self.state.auto_focus_search.get() {
             self.state.search_entry.grab_focus();
         }
+        refresh_entries_after_present(&self.state, reset_on_show);
         Ok(())
     }
 
@@ -194,13 +194,30 @@ fn configure_overlay_window(window: &gtk::ApplicationWindow, config: &AppConfig)
     window.init_layer_shell();
     window.set_namespace(Some("rsclip"));
     window.set_layer(Layer::Overlay);
-    window.set_keyboard_mode(KeyboardMode::Exclusive);
+    window.set_keyboard_mode(KeyboardMode::None);
     window.set_exclusive_zone(-1);
 
     window.set_anchor(Edge::Left, false);
     window.set_anchor(Edge::Right, false);
     window.set_anchor(Edge::Top, false);
     window.set_anchor(Edge::Bottom, false);
+}
+
+fn refresh_entries_after_present(state: &Rc<AppState>, reset_on_show: bool) {
+    let state = Rc::clone(state);
+    gtk::glib::idle_add_local_once(move || {
+        if let Err(err) = refresh_entries(&state) {
+            crate::actions::set_footer(&state, &format!("Refresh failed: {err:#}"));
+            return;
+        }
+
+        if reset_on_show {
+            state.list_adjustment.set_value(0.0);
+            if let Some(row) = state.list.row_at_index(0) {
+                state.list.select_row(Some(&row));
+            }
+        }
+    });
 }
 
 pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
@@ -262,8 +279,9 @@ pub(crate) fn filter_index(filter: EntryFilter) -> u32 {
         EntryFilter::All => 0,
         EntryFilter::Text => 1,
         EntryFilter::Images => 2,
-        EntryFilter::Links => 3,
-        EntryFilter::Colors => 4,
-        EntryFilter::Pinned => 5,
+        EntryFilter::Files => 3,
+        EntryFilter::Links => 4,
+        EntryFilter::Colors => 5,
+        EntryFilter::Pinned => 6,
     }
 }

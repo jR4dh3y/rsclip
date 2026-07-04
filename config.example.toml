@@ -31,6 +31,7 @@ show_footer_hints = true
 reset_on_show = true
 auto_focus_search = true
 start_view = "clipboard"
+# Valid filters: all, text, images, files, links, colors, pinned.
 default_filter = "all"
 default_sort = "default"
 search_placeholder = "Search clipboard..."

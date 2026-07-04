@@ -8,9 +8,9 @@ and is activated by later `rsclip` invocations.
 
 ## Current scope
 
-- SQLite-backed text and image history.
+- SQLite-backed text, image, and file-reference history.
 - `rsclipd store --mime ...` for manual or watcher-driven ingestion.
-- `rsclipd watch` to spawn `wl-paste --watch` text and PNG watchers.
+- `rsclipd watch` to spawn `wl-paste --watch` text, PNG, and URI-list watchers.
 - Text, link, and color classification.
 - Image payload storage under XDG data directories.
 - Resident GTK4 history window with search, filters, preview, copy, and auto-paste.
@@ -40,8 +40,13 @@ Manual storage:
 
 ```bash
 printf 'hello from rsclip' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/plain
+printf 'file:///tmp/a.txt\r\n' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/uri-list
 cargo run -p rsclip-daemon --bin rsclipd -- list
+cargo run -p rsclip-daemon --bin rsclipd -- list --filter files
 ```
+
+File entries store URI references, not file contents. The original files or directories must still
+exist when the entry is restored and pasted.
 
 Run the watcher:
 
@@ -62,17 +67,23 @@ process instead of cold-starting another overlay:
 rsclip              # show the resident UI
 rsclip show         # show the resident UI
 rsclip toggle       # hide if visible, show if hidden
+rsclip preload      # start and warm the resident UI without showing it
 rsclip quit-ui      # stop the resident UI process
 rsclip list         # print history without starting GTK
 ```
 
-On boot, the packaged systemd service starts only the headless `rsclipd watch` daemon.
-That keeps clipboard capture running, but it does not preload the GTK UI. The first
-hotkey or `rsclip show` after login may take a little longer while the resident UI
-process and window runtime are created; subsequent opens reuse that warm process.
+On boot, run the headless daemon and optionally preload the resident GTK UI:
 
-Keep `rsclipd watch` as the headless service. The UI and daemon are separate processes; the
-daemon stores history in SQLite and notifies the UI over the existing Unix datagram socket.
+```bash
+systemctl --user enable --now rsclipd.service
+systemctl --user enable --now rsclip-ui.service
+```
+
+`rsclipd.service` keeps clipboard capture running. `rsclip-ui.service` runs
+`rsclip preload`, which creates the hidden resident UI and warms the initial list so the first
+hotkey or `rsclip show` after login activates an existing process instead of cold-starting GTK.
+The UI and daemon are separate processes; the daemon stores history in SQLite and notifies the
+UI over the existing Unix datagram socket.
 
 Install the service and desktop file by adapting the files under `packaging/`.
 
@@ -169,8 +180,15 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.12
+
+- Added a hidden `rsclip preload` command for warming the resident GTK UI after login.
+- Added a packaged `rsclip-ui.service` user service to avoid first-hotkey cold starts.
+- Presented the overlay before refreshing the DB-backed list so manual cold opens draw faster.
+
 ### v0.1.11
 
+- Added file-copy history for local `text/uri-list` clipboard entries, restored as file clipboard data.
 - Failed `rsclipd watch` fast when the Wayland session environment is missing or stale.
 - Skipped starting the packaged user service when `WAYLAND_DISPLAY` is absent.
 - Kept watcher-triggered store IDs out of the systemd journal.
@@ -201,7 +219,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.11`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.12`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.11` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.12` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.

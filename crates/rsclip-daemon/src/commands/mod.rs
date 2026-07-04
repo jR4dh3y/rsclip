@@ -33,7 +33,8 @@ fn print_help() {
 Commands:
   watch                              Start wl-paste watchers
   store --mime text/plain            Store stdin as a clipboard entry
-  list [--json] [--query q]           List history
+  list [--json] [--query q] [--filter all|text|images|files|links|colors|pinned]
+                                      List history
   pin <id> [--off]                   Pin or unpin an entry
   delete <id>                        Soft-delete an entry
   paste <id> [--copy-only] [--delay-ms <ms>]

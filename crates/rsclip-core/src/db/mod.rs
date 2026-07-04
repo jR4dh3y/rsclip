@@ -71,6 +71,19 @@ mod tests {
         entry
     }
 
+    fn file_entry(hash: &str, title: &str, uri_list: &str) -> NewEntry {
+        let mut entry = NewEntry::new(
+            hash.to_string(),
+            "text/uri-list".to_string(),
+            title.to_string(),
+        );
+        entry.preview_text = Some("/tmp/test.txt".to_string());
+        entry.text_content = Some(uri_list.to_string());
+        entry.size_bytes = uri_list.len() as i64;
+        entry.data = NewEntryData::File { source_app: None };
+        entry
+    }
+
     #[test]
     fn database_entry_secret_and_ocr_smoke_test() {
         let path = temp_db_path();
@@ -158,6 +171,37 @@ mod tests {
             .list_entries_page("", EntryFilter::All, SortMode::Default, 25, 200)
             .unwrap();
         assert_eq!(page.len(), 25);
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+
+    #[test]
+    fn file_filter_returns_only_file_entries() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+
+        db.upsert_entry(&text_entry("hash-text", "plain text"))
+            .unwrap();
+        let file_uri_list = "file:///tmp/test.txt\r\n";
+        db.upsert_entry(&file_entry("hash-file", "test.txt", file_uri_list))
+            .unwrap();
+
+        let entries = db
+            .list_entries("", EntryFilter::Files, SortMode::Default, 10)
+            .unwrap();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].kind, crate::models::EntryKind::File);
+        assert!(matches!(
+            entries[0].data,
+            crate::models::EntryData::File { .. }
+        ));
+        assert_eq!(entries[0].text_content.as_deref(), Some(file_uri_list));
+        assert_eq!(db.count_entries("", EntryFilter::Files).unwrap(), 1);
+        assert!(db.has_recent_file_uri_list(file_uri_list, 5).unwrap());
 
         drop(db);
         let _ = std::fs::remove_file(&path);

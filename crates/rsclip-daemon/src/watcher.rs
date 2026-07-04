@@ -19,6 +19,7 @@ pub fn run_watchers() -> Result<()> {
 
     info!("starting rsclip clipboard watchers");
     let mut watchers = vec![
+        Watcher::new("files", "text/uri-list", "text/uri-list"),
         Watcher::new("text", "text", "text/plain"),
         Watcher::new("image", "image/png", "image/png"),
     ];

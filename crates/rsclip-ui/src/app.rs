@@ -17,7 +17,7 @@ pub(crate) fn run() -> Result<()> {
             crate::cli::print_help();
             return Ok(());
         }
-        UiCommand::Show | UiCommand::Toggle | UiCommand::QuitUi => {}
+        UiCommand::Show | UiCommand::Toggle | UiCommand::Preload | UiCommand::QuitUi => {}
     }
 
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
@@ -74,6 +74,12 @@ fn handle_command(
             ensure_runtime(app, runtime)?;
             if let Some(runtime) = runtime.borrow().as_ref() {
                 runtime.toggle()?;
+            }
+        }
+        UiCommand::Preload => {
+            ensure_runtime(app, runtime)?;
+            if let Some(runtime) = runtime.borrow().as_ref() {
+                runtime.preload()?;
             }
         }
         UiCommand::QuitUi => {
