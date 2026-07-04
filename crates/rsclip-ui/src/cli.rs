@@ -6,6 +6,7 @@ use rsclip_core::{Database, RsclipPaths};
 pub(crate) enum UiCommand {
     Show,
     Toggle,
+    Preload,
     QuitUi,
     List(Vec<String>),
     Help,
@@ -15,6 +16,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<UiCommand> {
     match args.first().map(String::as_str) {
         None | Some("show") => Ok(UiCommand::Show),
         Some("toggle") => Ok(UiCommand::Toggle),
+        Some("preload") => Ok(UiCommand::Preload),
         Some("quit-ui") => Ok(UiCommand::QuitUi),
         Some("list") => Ok(UiCommand::List(args[1..].to_vec())),
         Some("help" | "--help" | "-h") => Ok(UiCommand::Help),
@@ -30,6 +32,7 @@ Commands:
   rsclip                  Show the resident clipboard UI
   rsclip show             Show the resident clipboard UI
   rsclip toggle           Toggle the resident clipboard UI
+  rsclip preload          Start and warm the resident UI without showing it
   rsclip quit-ui          Quit the resident UI process
   rsclip list [options]   List clipboard history
 
@@ -79,6 +82,14 @@ mod tests {
         assert_eq!(
             parse_args(&make_args(&["toggle"])).unwrap(),
             UiCommand::Toggle
+        );
+    }
+
+    #[test]
+    fn parses_preload() {
+        assert_eq!(
+            parse_args(&make_args(&["preload"])).unwrap(),
+            UiCommand::Preload
         );
     }
 

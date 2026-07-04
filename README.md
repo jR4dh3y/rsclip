@@ -67,17 +67,23 @@ process instead of cold-starting another overlay:
 rsclip              # show the resident UI
 rsclip show         # show the resident UI
 rsclip toggle       # hide if visible, show if hidden
+rsclip preload      # start and warm the resident UI without showing it
 rsclip quit-ui      # stop the resident UI process
 rsclip list         # print history without starting GTK
 ```
 
-On boot, the packaged systemd service starts only the headless `rsclipd watch` daemon.
-That keeps clipboard capture running, but it does not preload the GTK UI. The first
-hotkey or `rsclip show` after login may take a little longer while the resident UI
-process and window runtime are created; subsequent opens reuse that warm process.
+On boot, run the headless daemon and optionally preload the resident GTK UI:
 
-Keep `rsclipd watch` as the headless service. The UI and daemon are separate processes; the
-daemon stores history in SQLite and notifies the UI over the existing Unix datagram socket.
+```bash
+systemctl --user enable --now rsclipd.service
+systemctl --user enable --now rsclip-ui.service
+```
+
+`rsclipd.service` keeps clipboard capture running. `rsclip-ui.service` runs
+`rsclip preload`, which creates the hidden resident UI and warms the initial list so the first
+hotkey or `rsclip show` after login activates an existing process instead of cold-starting GTK.
+The UI and daemon are separate processes; the daemon stores history in SQLite and notifies the
+UI over the existing Unix datagram socket.
 
 Install the service and desktop file by adapting the files under `packaging/`.
 
@@ -174,6 +180,12 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.12
+
+- Added a hidden `rsclip preload` command for warming the resident GTK UI after login.
+- Added a packaged `rsclip-ui.service` user service to avoid first-hotkey cold starts.
+- Presented the overlay before refreshing the DB-backed list so manual cold opens draw faster.
+
 ### v0.1.11
 
 - Added file-copy history for local `text/uri-list` clipboard entries, restored as file clipboard data.
@@ -207,7 +219,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.11`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.12`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.11` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.12` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.

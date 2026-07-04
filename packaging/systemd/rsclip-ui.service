@@ -1,0 +1,14 @@
+[Unit]
+Description=rsclip resident UI preloader
+PartOf=graphical-session.target
+After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/rsclip preload
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

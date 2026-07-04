@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1381,7 +1381,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-daemon"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1397,7 +1397,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-ui"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "chrono",
