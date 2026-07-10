@@ -24,6 +24,14 @@ impl Database {
         db.migrate()?;
         Ok(db)
     }
+
+    /// Run `f` inside a single SQLite transaction (rollback on error).
+    pub fn transaction<T>(&self, f: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        let tx = self.conn.unchecked_transaction()?;
+        let value = f(self)?;
+        tx.commit()?;
+        Ok(value)
+    }
 }
 
 #[cfg(test)]

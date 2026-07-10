@@ -8,13 +8,13 @@ use crate::state::AppState;
 
 pub(crate) fn copy_selected_entry(state: &Rc<AppState>, entry: &ClipboardEntry) -> Result<()> {
     copy_entry(entry)?;
-    state.db.borrow().touch_used(entry.id)?;
+    state.db.touch_used(entry.id)?;
     Ok(())
 }
 
 pub(crate) fn copy_secret(state: &Rc<AppState>, secret: &SecretEntry) -> Result<()> {
     write_clipboard("text/plain", secret.value.as_bytes())?;
-    state.db.borrow().touch_secret_used(secret.id)?;
+    state.db.touch_secret_used(secret.id)?;
     Ok(())
 }
 

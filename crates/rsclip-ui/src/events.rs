@@ -113,8 +113,12 @@ fn connect_search(state: &Rc<AppState>) {
     let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
     search.connect_search_changed(move |entry| {
         let text = entry.text().to_string();
-        // Skip when query was already updated programmatically (tab switch, reset, etc.).
+        // Programmatic resets (tab switch, etc.) set query before set_text; still cancel any
+        // in-flight debounce so a mid-type timer cannot refresh after the reset.
         if *state.query.borrow() == text {
+            if let Some(source_id) = pending.borrow_mut().take() {
+                source_id.remove();
+            }
             return;
         }
         *state.query.borrow_mut() = text;

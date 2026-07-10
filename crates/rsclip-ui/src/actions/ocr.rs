@@ -17,7 +17,6 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
 
     let entry = state
         .db
-        .borrow()
         .get_entry(entry_id)?
         .with_context(|| format!("entry {entry_id} not found"))?;
     let image_path = match &entry.data {
@@ -28,10 +27,9 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
     let command = state.ocr_command.borrow().clone();
     let timeout_seconds = state.ocr_timeout_seconds.get();
     let text = run_tesseract_with_options(&image_path, &language, &command, timeout_seconds)?;
-    let db = state.db.borrow();
-    db.save_ocr_result(entry_id, &language, &text)?;
-
-    let updated = db
+    state.db.save_ocr_result(entry_id, &language, &text)?;
+    let updated = state
+        .db
         .get_entry(entry_id)?
         .with_context(|| format!("entry {entry_id} not found after OCR"))?;
     if let Some(slot) = state

@@ -15,7 +15,7 @@ pub(crate) enum AppView {
 
 pub(crate) struct AppState {
     /// Long-lived connection so search/list never re-open + re-migrate on the UI thread.
-    pub(crate) db: RefCell<Database>,
+    pub(crate) db: Database,
     pub(crate) favicon_icon_dir: PathBuf,
     pub(crate) history_limit: Cell<usize>,
     pub(crate) auto_paste: Cell<bool>,

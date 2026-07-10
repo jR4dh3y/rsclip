@@ -3,7 +3,7 @@ use rusqlite::params;
 
 use super::Database;
 
-/// Bump when schema/migration logic changes so reopen can skip full migrate work.
+/// Highest applied schema version. Add a new `if current < N` step when changing schema.
 const SCHEMA_USER_VERSION: i32 = 1;
 
 impl Database {
@@ -15,6 +15,18 @@ impl Database {
             return Ok(());
         }
 
+        // Apply pending steps in order. New schema work becomes `if current < 2 { ... }`, etc.
+        if current < 1 {
+            self.migrate_v1()?;
+        }
+
+        self.conn
+            .pragma_update(None, "user_version", SCHEMA_USER_VERSION)?;
+        Ok(())
+    }
+
+    /// Baseline schema: tables, columns, indexes, and one-time link repair.
+    fn migrate_v1(&self) -> Result<()> {
         self.conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS entries (
@@ -109,8 +121,6 @@ impl Database {
                AND lower(trim(text_content)) NOT LIKE 'https://%';
             "#,
         )?;
-        self.conn
-            .pragma_update(None, "user_version", SCHEMA_USER_VERSION)?;
         Ok(())
     }
 
