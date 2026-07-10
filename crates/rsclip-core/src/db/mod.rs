@@ -281,6 +281,8 @@ mod tests {
             )
             .unwrap();
 
+        // Force a re-migrate so the data repair runs after the bad row was inserted.
+        db.conn.pragma_update(None, "user_version", 0).unwrap();
         db.migrate().unwrap();
 
         let entries = db

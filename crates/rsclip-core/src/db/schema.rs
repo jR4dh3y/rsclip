@@ -3,8 +3,18 @@ use rusqlite::params;
 
 use super::Database;
 
+/// Bump when schema/migration logic changes so reopen can skip full migrate work.
+const SCHEMA_USER_VERSION: i32 = 1;
+
 impl Database {
     pub fn migrate(&self) -> Result<()> {
+        let current: i32 = self
+            .conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if current >= SCHEMA_USER_VERSION {
+            return Ok(());
+        }
+
         self.conn.execute_batch(
             r#"
             CREATE TABLE IF NOT EXISTS entries (
@@ -99,6 +109,8 @@ impl Database {
                AND lower(trim(text_content)) NOT LIKE 'https://%';
             "#,
         )?;
+        self.conn
+            .pragma_update(None, "user_version", SCHEMA_USER_VERSION)?;
         Ok(())
     }
 

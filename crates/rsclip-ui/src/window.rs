@@ -70,7 +70,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
     let config = AppConfig::load(&paths)?;
-    Database::open(&paths.db_path)?;
+    let db = Database::open(&paths.db_path)?;
 
     crate::style::load_css(&config)?;
 
@@ -127,7 +127,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     shell.append(&footer_bar.container);
 
     let state = Rc::new(AppState {
-        db_path: paths.db_path.clone(),
+        db: RefCell::new(db),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
         history_limit: Cell::new(config.history.max_entries),
         auto_paste: Cell::new(config.paste.auto_paste),
