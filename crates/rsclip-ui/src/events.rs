@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
 use gtk::gdk;
 use gtk::prelude::*;
@@ -15,6 +17,9 @@ use crate::actions::selection::{mark_selected_row, move_selection};
 use crate::actions::{set_footer, update_mode_controls};
 use crate::components::preview::{render_preview, render_secret_preview};
 use crate::state::{AppState, AppView, current_entry, current_secret, entry_at_row, secret_at_row};
+
+/// Delay before applying search so typing does not block the UI on every keystroke.
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 
 pub(crate) fn connect(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
     connect_mode_buttons(state);
@@ -105,11 +110,32 @@ fn connect_ocr_button(state: &Rc<AppState>) {
 fn connect_search(state: &Rc<AppState>) {
     let search = state.search_entry.clone();
     let state = Rc::clone(state);
+    let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
     search.connect_search_changed(move |entry| {
-        *state.query.borrow_mut() = entry.text().to_string();
-        if let Err(err) = refresh_entries(&state) {
-            set_footer(&state, &format!("Search failed: {err:#}"));
+        let text = entry.text().to_string();
+        // Programmatic resets (tab switch, etc.) set query before set_text; still cancel any
+        // in-flight debounce so a mid-type timer cannot refresh after the reset.
+        if *state.query.borrow() == text {
+            if let Some(source_id) = pending.borrow_mut().take() {
+                source_id.remove();
+            }
+            return;
         }
+        *state.query.borrow_mut() = text;
+
+        if let Some(source_id) = pending.borrow_mut().take() {
+            source_id.remove();
+        }
+
+        let state = Rc::clone(&state);
+        let pending_for_timeout = Rc::clone(&pending);
+        let source_id = gtk::glib::timeout_add_local_once(SEARCH_DEBOUNCE, move || {
+            let _ = pending_for_timeout.borrow_mut().take();
+            if let Err(err) = refresh_entries(&state) {
+                set_footer(&state, &format!("Search failed: {err:#}"));
+            }
+        });
+        *pending.borrow_mut() = Some(source_id);
     });
 }
 

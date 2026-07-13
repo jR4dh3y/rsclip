@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk4 as gtk;
+use rsclip_core::Database;
 use rsclip_core::models::{ClipboardEntry, EntryFilter, SecretEntry, SortMode};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,7 +14,8 @@ pub(crate) enum AppView {
 }
 
 pub(crate) struct AppState {
-    pub(crate) db_path: PathBuf,
+    /// Long-lived connection so search/list never re-open + re-migrate on the UI thread.
+    pub(crate) db: Database,
     pub(crate) favicon_icon_dir: PathBuf,
     pub(crate) history_limit: Cell<usize>,
     pub(crate) auto_paste: Cell<bool>,

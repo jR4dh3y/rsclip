@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use gtk4::prelude::*;
-use rsclip_core::Database;
 
 use crate::actions::set_footer;
 use crate::components::labels::muted_label;
@@ -109,11 +108,11 @@ fn load_clipboard_window(
     selected_index: usize,
     preserve_scroll: bool,
 ) -> Result<()> {
-    let db = Database::open(&state.db_path)?;
     let query = state.query.borrow().clone();
     let filter = *state.filter.borrow();
     let sort = *state.sort.borrow();
-    let total = db
+    let total = state
+        .db
         .count_entries(&query, filter)?
         .min(state.history_limit.get());
     let window_len = window_row_count(state, total);
@@ -121,7 +120,9 @@ fn load_clipboard_window(
     let entries = if total == 0 {
         Vec::new()
     } else {
-        db.list_entries_page(&query, filter, sort, window_len, start)?
+        state
+            .db
+            .list_entries_page(&query, filter, sort, window_len, start)?
     };
 
     state.secrets.borrow_mut().clear();
@@ -141,15 +142,14 @@ fn load_secrets_window(
     selected_index: usize,
     preserve_scroll: bool,
 ) -> Result<()> {
-    let db = Database::open(&state.db_path)?;
     let query = state.query.borrow().clone();
-    let total = db.count_secrets(&query)?.min(state.history_limit.get());
+    let total = state.db.count_secrets(&query)?.min(state.history_limit.get());
     let window_len = window_row_count(state, total);
     let start = requested_start.min(total.saturating_sub(window_len));
     let secrets = if total == 0 {
         Vec::new()
     } else {
-        db.list_secrets_page(&query, window_len, start)?
+        state.db.list_secrets_page(&query, window_len, start)?
     };
 
     state.entries.borrow_mut().clear();

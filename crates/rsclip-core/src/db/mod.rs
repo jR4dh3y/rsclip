@@ -24,6 +24,14 @@ impl Database {
         db.migrate()?;
         Ok(db)
     }
+
+    /// Run `f` inside a single SQLite transaction (rollback on error).
+    pub fn transaction<T>(&self, f: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        let tx = self.conn.unchecked_transaction()?;
+        let value = f(self)?;
+        tx.commit()?;
+        Ok(value)
+    }
 }
 
 #[cfg(test)]
@@ -281,6 +289,8 @@ mod tests {
             )
             .unwrap();
 
+        // Force a re-migrate so the data repair runs after the bad row was inserted.
+        db.conn.pragma_update(None, "user_version", 0).unwrap();
         db.migrate().unwrap();
 
         let entries = db
