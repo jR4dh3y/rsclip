@@ -180,6 +180,11 @@ rsclipd favicons clear
 
 ## Release Notes
 
+### v0.1.13
+
+- Debounced search input and reused the resident UI database handle so typing no longer freezes the overlay.
+- Kept search work off the GTK main thread under load from large histories.
+
 ### v0.1.12
 
 - Added a hidden `rsclip preload` command for warming the resident GTK UI after login.
@@ -219,7 +224,7 @@ rsclipd favicons clear
 
 This repository can publish a binary AUR package from GitHub release assets.
 
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.12`.
+- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.13`.
 - The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.12` triggers GitHub Actions to publish the
+- Pushing a matching Git tag such as `v0.1.13` triggers GitHub Actions to publish the
   archive and update the `rsclip-bin` AUR package.
