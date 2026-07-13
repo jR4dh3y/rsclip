@@ -16,6 +16,15 @@ and is activated by later `rsclip` invocations.
 - Resident GTK4 history window with search, filters, preview, copy, and auto-paste.
 - OCR command plumbing through `rsclipd ocr`.
 
+## Install
+
+On Arch based installs:
+```bash
+paru -S rsclip-bin
+```
+
+
+
 ## Build
 
 ```bash
@@ -177,54 +186,3 @@ Clear cached icons and failed-domain records with:
 ```bash
 rsclipd favicons clear
 ```
-
-## Release Notes
-
-### v0.1.13
-
-- Debounced search input and reused the resident UI database handle so typing no longer freezes the overlay.
-- Kept search work off the GTK main thread under load from large histories.
-
-### v0.1.12
-
-- Added a hidden `rsclip preload` command for warming the resident GTK UI after login.
-- Added a packaged `rsclip-ui.service` user service to avoid first-hotkey cold starts.
-- Presented the overlay before refreshing the DB-backed list so manual cold opens draw faster.
-
-### v0.1.11
-
-- Added file-copy history for local `text/uri-list` clipboard entries, restored as file clipboard data.
-- Failed `rsclipd watch` fast when the Wayland session environment is missing or stale.
-- Skipped starting the packaged user service when `WAYLAND_DISPLAY` is absent.
-- Kept watcher-triggered store IDs out of the systemd journal.
-
-### v0.1.10
-
-- Treated `text/uri-list` clipboard payloads as file entries instead of plain text.
-- Made schema startup backfill missing columns so older SQLite databases migrate cleanly.
-- Reused the shared color parser for UI theme validation and removed regex-based color parsing.
-- Skipped favicon network fetches for localhost, numeric, and reserved internal domains.
-- Simplified favicon fallback styling and notification setup.
-
-### v0.1.9
-
-- Switched the resident UI history list to DB-backed virtual scrolling for large histories.
-- Kept only the visible list window plus nearby rows mounted while preserving full-history totals.
-- Added paged SQLite reads and count queries for clipboard and secret search results.
-
-### v0.1.8
-
-- Added `~/.config/rsclip/config.toml` support for history, paste, OCR, UI, color, and favicon settings.
-- Hot-reloaded resident UI settings and theme colors without requiring `rsclip quit-ui`.
-- Removed the fixed 200-item UI cap; clipboard and secret lists now use `history.max_entries`.
-- Made paste and OCR behavior configurable for both daemon commands and the resident UI.
-- Added optional link favicon caching through the background daemon.
-
-## Release and AUR
-
-This repository can publish a binary AUR package from GitHub release assets.
-
-- Build the release archive locally with `./scripts/build-release-archive.sh 0.1.13`.
-- The AUR package definition lives under `packaging/aur/rsclip-bin`.
-- Pushing a matching Git tag such as `v0.1.13` triggers GitHub Actions to publish the
-  archive and update the `rsclip-bin` AUR package.
