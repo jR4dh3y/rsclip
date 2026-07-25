@@ -187,6 +187,39 @@ mod tests {
     }
 
     #[test]
+    fn entry_summaries_omit_text_payload_but_remain_searchable() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+        let entry_id = db
+            .upsert_entry(&text_entry(
+                "large-text-hash",
+                "needle in a potentially large payload",
+            ))
+            .unwrap();
+
+        let summaries = db
+            .list_entry_summaries_page("needle", EntryFilter::All, SortMode::Default, 10, 0)
+            .unwrap();
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, entry_id);
+        assert!(summaries[0].text_content.is_none());
+        assert!(summaries[0].preview_text.is_some());
+        assert!(
+            db.get_entry(entry_id)
+                .unwrap()
+                .unwrap()
+                .text_content
+                .is_some()
+        );
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+
+    #[test]
     fn file_filter_returns_only_file_entries() {
         let path = temp_db_path();
         let db = Database::open(&path).unwrap();

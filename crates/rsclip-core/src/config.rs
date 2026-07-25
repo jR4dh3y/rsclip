@@ -41,9 +41,9 @@ pub struct AppConfig {
 pub struct HistoryConfig {
     #[serde(default = "default_history_max_entries")]
     pub max_entries: usize,
-    #[serde(default)]
+    #[serde(default = "default_max_text_bytes")]
     pub max_text_bytes: usize,
-    #[serde(default)]
+    #[serde(default = "default_max_image_bytes")]
     pub max_image_bytes: usize,
     #[serde(default = "default_true")]
     pub dedupe: bool,
@@ -55,8 +55,8 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             max_entries: default_history_max_entries(),
-            max_text_bytes: 0,
-            max_image_bytes: 0,
+            max_text_bytes: default_max_text_bytes(),
+            max_image_bytes: default_max_image_bytes(),
             dedupe: true,
             cleanup_unpinned_after_days: 0,
         }
@@ -214,6 +214,14 @@ fn default_theme() -> String {
 
 fn default_history_max_entries() -> usize {
     2000
+}
+
+fn default_max_text_bytes() -> usize {
+    1024 * 1024
+}
+
+fn default_max_image_bytes() -> usize {
+    10 * 1024 * 1024
 }
 
 fn default_true() -> bool {
@@ -384,7 +392,8 @@ mod tests {
             .expect("missing config file should load defaults");
 
         assert_eq!(config.history.max_entries, 2000);
-        assert_eq!(config.history.max_text_bytes, 0);
+        assert_eq!(config.history.max_text_bytes, 1024 * 1024);
+        assert_eq!(config.history.max_image_bytes, 10 * 1024 * 1024);
         assert!(config.history.dedupe);
         assert!(config.paste.auto_paste);
         assert_eq!(config.paste.paste_delay_ms, 140);

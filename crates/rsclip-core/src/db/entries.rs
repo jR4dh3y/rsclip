@@ -134,11 +134,45 @@ impl Database {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<ClipboardEntry>> {
-        let mut sql = String::from(
+        self.list_entries_page_with_text(query, filter, sort, limit, offset, true)
+    }
+
+    /// Load rows for the history UI without copying potentially huge text payloads.
+    ///
+    /// Text entries use `preview_text` in the list and preview panes. Callers that
+    /// need the complete clipboard payload can fetch the selected row with
+    /// [`Database::get_entry`].
+    pub fn list_entry_summaries_page(
+        &self,
+        query: &str,
+        filter: EntryFilter,
+        sort: SortMode,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<ClipboardEntry>> {
+        self.list_entries_page_with_text(query, filter, sort, limit, offset, false)
+    }
+
+    fn list_entries_page_with_text(
+        &self,
+        query: &str,
+        filter: EntryFilter,
+        sort: SortMode,
+        limit: usize,
+        offset: usize,
+        include_text_payload: bool,
+    ) -> Result<Vec<ClipboardEntry>> {
+        let text_content = if include_text_payload {
+            "e.text_content"
+        } else {
+            "CASE WHEN e.kind = 'text' THEN NULL ELSE e.text_content END"
+        };
+        let mut sql = format!(
             r#"
             SELECT
               e.id, e.content_hash, e.kind, e.mime_type, e.title, e.preview_text,
-              e.text_content, e.file_path, e.thumb_path, e.source_app, e.link_url,
+              {text_content} AS text_content,
+              e.file_path, e.thumb_path, e.source_app, e.link_url,
               e.link_domain, e.link_icon, e.color_value, e.color_format, e.pinned,
               e.copied_at, e.updated_at, e.last_used_at, e.use_count, e.size_bytes,
               o.text AS ocr_text
