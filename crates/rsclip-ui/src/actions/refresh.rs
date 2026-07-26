@@ -137,6 +137,7 @@ fn load_clipboard_window(
     Ok(())
 }
 
+/// Replace the visible clipboard window with a completed worker result.
 pub(crate) fn apply_clipboard_search_results(
     state: &Rc<AppState>,
     total: usize,
@@ -151,6 +152,7 @@ pub(crate) fn apply_clipboard_search_results(
     render_clipboard_window(state, Some(0), false);
 }
 
+/// Replace the visible secrets window with a completed worker result.
 pub(crate) fn apply_secret_search_results(
     state: &Rc<AppState>,
     total: usize,
@@ -380,6 +382,7 @@ fn window_row_count(state: &Rc<AppState>, total: usize) -> usize {
         .min(total)
 }
 
+/// Calculate the number of rows requested by the background search worker.
 pub(crate) fn search_window_row_count(state: &Rc<AppState>) -> usize {
     visible_row_count(state).saturating_add(WINDOW_PADDING_ROWS * 2)
 }

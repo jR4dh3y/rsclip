@@ -22,14 +22,15 @@ use crate::actions::selection::{mark_selected_row, move_selection};
 use crate::actions::{set_footer, update_mode_controls};
 use crate::components::preview::{render_preview, render_secret_preview};
 use crate::state::{
-    AppState, AppView, current_entry, current_secret, entry_at_row, full_entry_at_row,
-    secret_at_row,
+    AppState, AppView, current_entry, current_full_entry, current_secret, entry_at_row,
+    full_entry_at_row, secret_at_row,
 };
 
 /// Delay before applying search so typing does not block the UI on every keystroke.
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
 const SEARCH_RESULT_POLL: Duration = Duration::from_millis(16);
 
+/// Immutable search parameters sent from GTK to the SQLite worker.
 #[derive(Clone)]
 struct SearchRequest {
     generation: u64,
@@ -41,6 +42,7 @@ struct SearchRequest {
     row_limit: usize,
 }
 
+/// Payload returned by the worker for the active application view.
 enum SearchResults {
     Clipboard {
         total: usize,
@@ -52,6 +54,7 @@ enum SearchResults {
     },
 }
 
+/// Worker output paired with its request metadata for stale-result validation.
 struct SearchResponse {
     request: SearchRequest,
     result: Result<SearchResults, String>,
@@ -143,6 +146,7 @@ fn connect_ocr_button(state: &Rc<AppState>) {
     });
 }
 
+/// Connect the debounced GTK search field to a persistent SQLite worker.
 fn connect_search(state: &Rc<AppState>) {
     let (request_tx, request_rx) = mpsc::channel::<SearchRequest>();
     let (response_tx, response_rx) = mpsc::channel::<SearchResponse>();
@@ -213,6 +217,7 @@ fn connect_search(state: &Rc<AppState>) {
     });
 }
 
+/// Poll for one expected worker response only while a search is in flight.
 fn start_search_response_poll(
     state: &Rc<AppState>,
     generation: &Rc<Cell<u64>>,
@@ -245,6 +250,7 @@ fn start_search_response_poll(
     *pending_poll.borrow_mut() = Some(source_id);
 }
 
+/// Own a dedicated SQLite connection and coalesce queued search requests.
 fn search_worker(
     db_path: std::path::PathBuf,
     request_rx: mpsc::Receiver<SearchRequest>,
@@ -284,6 +290,7 @@ fn search_worker(
     }
 }
 
+/// Execute one paged search without accessing GTK-owned state.
 fn run_search(db: &Database, request: &SearchRequest) -> anyhow::Result<SearchResults> {
     Ok(match request.view {
         AppView::Clipboard => {
@@ -315,6 +322,7 @@ fn run_search(db: &Database, request: &SearchRequest) -> anyhow::Result<SearchRe
     })
 }
 
+/// Apply a response only when its complete search context is still current.
 fn apply_search_response(state: &Rc<AppState>, generation: &Cell<u64>, response: SearchResponse) {
     let request = &response.request;
     let is_current = request.generation == generation.get()
@@ -527,7 +535,7 @@ fn set_filter(state: &Rc<AppState>, filter: EntryFilter) {
 fn handle_enter(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
     match *state.view.borrow() {
         AppView::Clipboard => {
-            if let Some(entry) = current_entry(state) {
+            if let Some(entry) = current_full_entry(state) {
                 if let Err(err) = copy_selected_entry(state, &entry) {
                     set_footer(state, &format!("Paste failed: {err:#}"));
                 } else {
@@ -550,7 +558,7 @@ fn handle_enter(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
 fn handle_copy(state: &Rc<AppState>) {
     match *state.view.borrow() {
         AppView::Clipboard => {
-            if let Some(entry) = current_entry(state) {
+            if let Some(entry) = current_full_entry(state) {
                 if let Err(err) = copy_selected_entry(state, &entry) {
                     set_footer(state, &format!("Copy failed: {err:#}"));
                 } else {

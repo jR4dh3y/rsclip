@@ -62,7 +62,14 @@ pub(crate) struct AppState {
     pub(crate) ocr_button: gtk::Button,
 }
 
+/// Return the selected list summary without reading its full payload from SQLite.
 pub(crate) fn current_entry(state: &Rc<AppState>) -> Option<ClipboardEntry> {
+    let row = state.list.selected_row()?;
+    entry_at_row(state, &row)
+}
+
+/// Load the complete selected entry for actions that consume its clipboard payload.
+pub(crate) fn current_full_entry(state: &Rc<AppState>) -> Option<ClipboardEntry> {
     let row = state.list.selected_row()?;
     full_entry_at_row(state, &row)
 }
@@ -88,6 +95,7 @@ pub(crate) fn entry_at_row(state: &Rc<AppState>, row: &gtk::ListBoxRow) -> Optio
     state.entries.borrow().get(relative_index).cloned()
 }
 
+/// Load the complete entry represented by `row`.
 pub(crate) fn full_entry_at_row(
     state: &Rc<AppState>,
     row: &gtk::ListBoxRow,

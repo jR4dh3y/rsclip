@@ -343,6 +343,7 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
     container.append(&scroller);
 }
 
+/// Truncate preview text without splitting a UTF-8 code point.
 fn bounded_preview(text: &str) -> std::borrow::Cow<'_, str> {
     if text.len() <= MAX_PREVIEW_BYTES {
         return std::borrow::Cow::Borrowed(text);

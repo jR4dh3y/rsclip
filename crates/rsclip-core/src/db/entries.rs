@@ -153,6 +153,7 @@ impl Database {
         self.list_entries_page_with_text(query, filter, sort, limit, offset, false)
     }
 
+    /// Execute the shared entry-page query with either full or summary text data.
     fn list_entries_page_with_text(
         &self,
         query: &str,

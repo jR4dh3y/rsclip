@@ -137,3 +137,30 @@ fn unique_entry_hash(hash: &str) -> String {
         .unwrap_or_default();
     format!("{hash}-{}-{nanos}", std::process::id())
 }
+
+#[cfg(test)]
+mod tests {
+    use rsclip_core::AppConfig;
+
+    use super::payload_limit;
+
+    #[test]
+    fn payload_limits_preserve_zero_as_the_unlimited_sentinel() {
+        let mut config = AppConfig::default();
+        config.history.max_text_bytes = 0;
+        config.history.max_image_bytes = 0;
+
+        assert_eq!(payload_limit("text/plain", &config), None);
+        assert_eq!(payload_limit("image/png", &config), None);
+    }
+
+    #[test]
+    fn payload_limits_select_the_matching_positive_limit() {
+        let mut config = AppConfig::default();
+        config.history.max_text_bytes = 1024;
+        config.history.max_image_bytes = 2048;
+
+        assert_eq!(payload_limit("text/plain", &config), Some(1024));
+        assert_eq!(payload_limit("image/png", &config), Some(2048));
+    }
+}
