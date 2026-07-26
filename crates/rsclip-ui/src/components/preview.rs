@@ -12,6 +12,9 @@ use crate::components::details::{render_details, render_secret_details};
 use crate::components::labels::{muted_label, section_label};
 use crate::state::AppState;
 
+const MAX_PREVIEW_BYTES: usize = 32 * 1024;
+const PREVIEW_TRUNCATED_NOTICE: &str = "\n\n[Preview truncated — copy the entry for full content]";
+
 pub(crate) struct PreviewPanel {
     pub(crate) shell: gtk::Box,
     pub(crate) preview: gtk::Box,
@@ -322,7 +325,8 @@ fn render_ocr_header(state: &Rc<AppState>, ocr: &str) {
 
 fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
     let buffer = gtk::TextBuffer::new(None);
-    buffer.set_text(text.unwrap_or(""));
+    let text = bounded_preview(text.unwrap_or(""));
+    buffer.set_text(&text);
     let view = gtk::TextView::with_buffer(&buffer);
     view.add_css_class("preview-text");
     view.set_editable(false);
@@ -337,4 +341,41 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
         .child(&view)
         .build();
     container.append(&scroller);
+}
+
+/// Truncate preview text without splitting a UTF-8 code point.
+fn bounded_preview(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.len() <= MAX_PREVIEW_BYTES {
+        return std::borrow::Cow::Borrowed(text);
+    }
+
+    let mut end = MAX_PREVIEW_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut preview = String::with_capacity(end + PREVIEW_TRUNCATED_NOTICE.len());
+    preview.push_str(&text[..end]);
+    preview.push_str(PREVIEW_TRUNCATED_NOTICE);
+    std::borrow::Cow::Owned(preview)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_PREVIEW_BYTES, PREVIEW_TRUNCATED_NOTICE, bounded_preview};
+
+    #[test]
+    fn preview_is_bounded_on_utf8_boundary() {
+        let text = "🦀".repeat(MAX_PREVIEW_BYTES);
+        let preview = bounded_preview(&text);
+
+        assert!(preview.ends_with(PREVIEW_TRUNCATED_NOTICE));
+        assert!(preview.len() <= MAX_PREVIEW_BYTES + PREVIEW_TRUNCATED_NOTICE.len());
+        assert!(std::str::from_utf8(preview.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn small_preview_is_unchanged() {
+        let text = "small clipboard entry";
+        assert_eq!(bounded_preview(text), text);
+    }
 }

@@ -113,6 +113,8 @@ dedupe = true
 cleanup_unpinned_after_days = 0
 ```
 
+Set either byte limit to `0` to explicitly allow unlimited payloads.
+
 Paste behavior is configurable for the resident UI:
 
 ```toml

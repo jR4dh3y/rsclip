@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use anyhow::Result;
 use gtk4::prelude::*;
+use rsclip_core::models::{ClipboardEntry, SecretEntry};
 
 use crate::actions::set_footer;
 use crate::components::labels::muted_label;
@@ -122,7 +123,7 @@ fn load_clipboard_window(
     } else {
         state
             .db
-            .list_entries_page(&query, filter, sort, window_len, start)?
+            .list_entry_summaries_page(&query, filter, sort, window_len, start)?
     };
 
     state.secrets.borrow_mut().clear();
@@ -136,6 +137,36 @@ fn load_clipboard_window(
     Ok(())
 }
 
+/// Replace the visible clipboard window with a completed worker result.
+pub(crate) fn apply_clipboard_search_results(
+    state: &Rc<AppState>,
+    total: usize,
+    entries: Vec<ClipboardEntry>,
+) {
+    state.secrets.borrow_mut().clear();
+    state.secrets_start.set(0);
+    state.secrets_total.set(0);
+    *state.entries.borrow_mut() = entries;
+    state.entries_start.set(0);
+    state.entries_total.set(total);
+    render_clipboard_window(state, Some(0), false);
+}
+
+/// Replace the visible secrets window with a completed worker result.
+pub(crate) fn apply_secret_search_results(
+    state: &Rc<AppState>,
+    total: usize,
+    secrets: Vec<SecretEntry>,
+) {
+    state.entries.borrow_mut().clear();
+    state.entries_start.set(0);
+    state.entries_total.set(0);
+    *state.secrets.borrow_mut() = secrets;
+    state.secrets_start.set(0);
+    state.secrets_total.set(total);
+    render_secrets_window(state, Some(0), false);
+}
+
 fn load_secrets_window(
     state: &Rc<AppState>,
     requested_start: usize,
@@ -143,7 +174,10 @@ fn load_secrets_window(
     preserve_scroll: bool,
 ) -> Result<()> {
     let query = state.query.borrow().clone();
-    let total = state.db.count_secrets(&query)?.min(state.history_limit.get());
+    let total = state
+        .db
+        .count_secrets(&query)?
+        .min(state.history_limit.get());
     let window_len = window_row_count(state, total);
     let start = requested_start.min(total.saturating_sub(window_len));
     let secrets = if total == 0 {
@@ -346,6 +380,11 @@ fn window_row_count(state: &Rc<AppState>, total: usize) -> usize {
     visible_row_count(state)
         .saturating_add(WINDOW_PADDING_ROWS * 2)
         .min(total)
+}
+
+/// Calculate the number of rows requested by the background search worker.
+pub(crate) fn search_window_row_count(state: &Rc<AppState>) -> usize {
+    visible_row_count(state).saturating_add(WINDOW_PADDING_ROWS * 2)
 }
 
 fn selected_index(state: &Rc<AppState>) -> Option<usize> {

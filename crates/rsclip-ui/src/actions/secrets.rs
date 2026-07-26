@@ -8,10 +8,10 @@ use rsclip_core::secrets::{default_secret_alias, secret_value_from_entry};
 use crate::actions::refresh::refresh_entries;
 use crate::actions::{set_footer, update_mode_controls};
 use crate::dialogs::secret_alias::prompt_secret_alias;
-use crate::state::{AppState, AppView, current_entry, current_secret};
+use crate::state::{AppState, AppView, current_entry, current_full_entry, current_secret};
 
 pub(crate) fn save_current_as_secret_dialog(state: &Rc<AppState>, parent: &gtk::Window) {
-    let Some(entry) = current_entry(state) else {
+    let Some(entry) = current_full_entry(state) else {
         set_footer(state, "No selected entry to save");
         return;
     };

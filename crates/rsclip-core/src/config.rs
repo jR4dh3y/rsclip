@@ -41,9 +41,11 @@ pub struct AppConfig {
 pub struct HistoryConfig {
     #[serde(default = "default_history_max_entries")]
     pub max_entries: usize,
-    #[serde(default)]
+    /// Maximum text payload size; `0` explicitly disables the limit.
+    #[serde(default = "default_max_text_bytes")]
     pub max_text_bytes: usize,
-    #[serde(default)]
+    /// Maximum image payload size; `0` explicitly disables the limit.
+    #[serde(default = "default_max_image_bytes")]
     pub max_image_bytes: usize,
     #[serde(default = "default_true")]
     pub dedupe: bool,
@@ -55,8 +57,8 @@ impl Default for HistoryConfig {
     fn default() -> Self {
         Self {
             max_entries: default_history_max_entries(),
-            max_text_bytes: 0,
-            max_image_bytes: 0,
+            max_text_bytes: default_max_text_bytes(),
+            max_image_bytes: default_max_image_bytes(),
             dedupe: true,
             cleanup_unpinned_after_days: 0,
         }
@@ -214,6 +216,16 @@ fn default_theme() -> String {
 
 fn default_history_max_entries() -> usize {
     2000
+}
+
+/// Default maximum size for captured text payloads (1 MiB).
+fn default_max_text_bytes() -> usize {
+    1024 * 1024
+}
+
+/// Default maximum size for captured image payloads (10 MiB).
+fn default_max_image_bytes() -> usize {
+    10 * 1024 * 1024
 }
 
 fn default_true() -> bool {
@@ -384,7 +396,8 @@ mod tests {
             .expect("missing config file should load defaults");
 
         assert_eq!(config.history.max_entries, 2000);
-        assert_eq!(config.history.max_text_bytes, 0);
+        assert_eq!(config.history.max_text_bytes, 1024 * 1024);
+        assert_eq!(config.history.max_image_bytes, 10 * 1024 * 1024);
         assert!(config.history.dedupe);
         assert!(config.paste.auto_paste);
         assert_eq!(config.paste.paste_delay_ms, 140);
@@ -492,6 +505,26 @@ cleanup_unpinned_after_days = 30
         assert_eq!(config.history.max_image_bytes, 2048);
         assert!(!config.history.dedupe);
         assert_eq!(config.history.cleanup_unpinned_after_days, 30);
+    }
+
+    #[test]
+    fn zero_history_byte_limits_explicitly_select_unlimited_payloads() {
+        let paths = test_paths("unlimited-history-payloads");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(
+            paths.config_path(),
+            r#"
+[history]
+max_text_bytes = 0
+max_image_bytes = 0
+"#,
+        )
+        .expect("history config file should be written");
+
+        let config = AppConfig::load(&paths).expect("history config file should load");
+
+        assert_eq!(config.history.max_text_bytes, 0);
+        assert_eq!(config.history.max_image_bytes, 0);
     }
 
     #[test]

@@ -128,6 +128,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
 
     let state = Rc::new(AppState {
         db,
+        db_path: paths.db_path.clone(),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
         history_limit: Cell::new(config.history.max_entries),
         auto_paste: Cell::new(config.paste.auto_paste),

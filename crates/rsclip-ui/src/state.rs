@@ -16,6 +16,8 @@ pub(crate) enum AppView {
 pub(crate) struct AppState {
     /// Long-lived connection so search/list never re-open + re-migrate on the UI thread.
     pub(crate) db: Database,
+    /// Search uses a dedicated worker connection so SQLite never blocks GTK.
+    pub(crate) db_path: PathBuf,
     pub(crate) favicon_icon_dir: PathBuf,
     pub(crate) history_limit: Cell<usize>,
     pub(crate) auto_paste: Cell<bool>,
@@ -60,9 +62,16 @@ pub(crate) struct AppState {
     pub(crate) ocr_button: gtk::Button,
 }
 
+/// Return the selected list summary without reading its full payload from SQLite.
 pub(crate) fn current_entry(state: &Rc<AppState>) -> Option<ClipboardEntry> {
     let row = state.list.selected_row()?;
     entry_at_row(state, &row)
+}
+
+/// Load the complete selected entry for actions that consume its clipboard payload.
+pub(crate) fn current_full_entry(state: &Rc<AppState>) -> Option<ClipboardEntry> {
+    let row = state.list.selected_row()?;
+    full_entry_at_row(state, &row)
 }
 
 pub(crate) fn current_secret(state: &Rc<AppState>) -> Option<SecretEntry> {
@@ -84,6 +93,15 @@ pub(crate) fn entry_at_row(state: &Rc<AppState>, row: &gtk::ListBoxRow) -> Optio
     let relative_index =
         row_relative_index(row, state.entries_start.get(), state.entries.borrow().len())?;
     state.entries.borrow().get(relative_index).cloned()
+}
+
+/// Load the complete entry represented by `row`.
+pub(crate) fn full_entry_at_row(
+    state: &Rc<AppState>,
+    row: &gtk::ListBoxRow,
+) -> Option<ClipboardEntry> {
+    let id = entry_at_row(state, row)?.id;
+    state.db.get_entry(id).ok().flatten()
 }
 
 pub(crate) fn secret_at_row(state: &Rc<AppState>, row: &gtk::ListBoxRow) -> Option<SecretEntry> {
