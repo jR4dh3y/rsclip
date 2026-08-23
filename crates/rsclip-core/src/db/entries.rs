@@ -6,6 +6,10 @@ use crate::models::{ClipboardEntry, EntryFilter, NewEntry, NewEntryData, SortMod
 
 use super::{Database, rows::entry_from_row};
 
+/// Keep history rows below the UI's 32 KiB preview budget even when an older
+/// database has oversized text fields. SQLite's `substr` counts characters.
+pub(super) const SUMMARY_TEXT_LIMIT_CHARS: usize = 8 * 1024;
+
 impl Database {
     pub fn upsert_entry(&self, entry: &NewEntry) -> Result<i64> {
         let now = Utc::now().timestamp();
@@ -163,20 +167,10 @@ impl Database {
         offset: usize,
         include_text_payload: bool,
     ) -> Result<Vec<ClipboardEntry>> {
-        let text_content = if include_text_payload {
-            "e.text_content"
-        } else {
-            "CASE WHEN e.kind = 'text' THEN NULL ELSE e.text_content END"
-        };
+        let columns = entry_select_columns(include_text_payload);
         let mut sql = format!(
             r#"
-            SELECT
-              e.id, e.content_hash, e.kind, e.mime_type, e.title, e.preview_text,
-              {text_content} AS text_content,
-              e.file_path, e.thumb_path, e.source_app, e.link_url,
-              e.link_domain, e.link_icon, e.color_value, e.color_format, e.pinned,
-              e.copied_at, e.updated_at, e.last_used_at, e.use_count, e.size_bytes,
-              o.text AS ocr_text
+            SELECT {columns}
             FROM entries e
             LEFT JOIN ocr_results o ON o.entry_id = e.id
             WHERE e.deleted = 0
@@ -342,6 +336,44 @@ impl Database {
             params![cutoff, Utc::now().timestamp()],
         )?;
         Ok(deleted)
+    }
+}
+
+fn entry_select_columns(include_text_payload: bool) -> String {
+    if include_text_payload {
+        r#"
+          e.id, e.content_hash, e.kind, e.mime_type, e.title, e.preview_text,
+          e.text_content, e.file_path, e.thumb_path, e.source_app, e.link_url,
+          e.link_domain, e.link_icon, e.color_value, e.color_format, e.pinned,
+          e.copied_at, e.updated_at, e.last_used_at, e.use_count, e.size_bytes,
+          o.text AS ocr_text
+        "#
+        .to_string()
+    } else {
+        format!(
+            r#"
+              e.id,
+              substr(e.content_hash, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS content_hash,
+              e.kind,
+              substr(e.mime_type, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS mime_type,
+              substr(e.title, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS title,
+              substr(e.preview_text, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS preview_text,
+              CASE WHEN e.kind = 'text' THEN NULL
+                   ELSE substr(e.text_content, 1, {SUMMARY_TEXT_LIMIT_CHARS})
+              END AS text_content,
+              substr(e.file_path, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS file_path,
+              substr(e.thumb_path, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS thumb_path,
+              substr(e.source_app, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS source_app,
+              substr(e.link_url, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS link_url,
+              substr(e.link_domain, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS link_domain,
+              substr(e.link_icon, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS link_icon,
+              substr(e.color_value, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS color_value,
+              substr(e.color_format, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS color_format,
+              e.pinned, e.copied_at, e.updated_at, e.last_used_at, e.use_count,
+              e.size_bytes,
+              substr(o.text, 1, {SUMMARY_TEXT_LIMIT_CHARS}) AS ocr_text
+            "#
+        )
     }
 }
 

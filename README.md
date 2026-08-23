@@ -19,11 +19,10 @@ and is activated by later `rsclip` invocations.
 ## Install
 
 On Arch based installs:
+
 ```bash
 paru -S rsclip-bin
 ```
-
-
 
 ## Build
 
@@ -188,3 +187,17 @@ Clear cached icons and failed-domain records with:
 ```bash
 rsclipd favicons clear
 ```
+
+## Release notes
+
+### v0.1.14
+
+- Kept startup, search, filters, notifications, and virtual-list paging off the GTK thread.
+- Bounded legacy list fields and large text previews while preserving full content for copy and paste.
+- Coalesced queued list requests and rejected stale results while the user keeps typing.
+
+## Release and AUR
+
+Build the release archive locally with `./scripts/build-release-archive.sh 0.1.14`.
+Pushing a matching `v0.1.14` tag runs the release workflow, publishes the archive,
+and updates the `rsclip-bin` AUR package.

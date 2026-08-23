@@ -39,7 +39,9 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use crate::models::{EntryFilter, NewEntry, NewEntryData, SortMode};
+    use crate::models::{
+        ClipboardEntry, EntryData, EntryFilter, EntryKind, NewEntry, NewEntryData, SortMode,
+    };
 
     use super::Database;
 
@@ -90,6 +92,56 @@ mod tests {
         entry.size_bytes = uri_list.len() as i64;
         entry.data = NewEntryData::File { source_app: None };
         entry
+    }
+
+    fn assert_bounded_summary(entry: &ClipboardEntry) {
+        let limit = super::entries::SUMMARY_TEXT_LIMIT_CHARS;
+        assert!(entry.content_hash.chars().count() <= limit);
+        assert!(entry.mime_type.chars().count() <= limit);
+        assert!(entry.title.chars().count() <= limit);
+        for value in [entry.preview_text.as_deref(), entry.text_content.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            assert!(value.chars().count() <= limit);
+        }
+
+        match &entry.data {
+            EntryData::Image {
+                file_path,
+                thumb_path,
+                ocr_text,
+            } => {
+                assert!(file_path.chars().count() <= limit);
+                for value in [thumb_path.as_deref(), ocr_text.as_deref()]
+                    .into_iter()
+                    .flatten()
+                {
+                    assert!(value.chars().count() <= limit);
+                }
+            }
+            EntryData::Link { url, domain, icon } => {
+                assert!(url.chars().count() <= limit);
+                assert!(domain.chars().count() <= limit);
+                assert!(icon.chars().count() <= limit);
+            }
+            EntryData::Color { value, format } => {
+                assert!(value.chars().count() <= limit);
+                assert!(format.chars().count() <= limit);
+            }
+            EntryData::File { source_app } => {
+                assert!(
+                    source_app
+                        .as_deref()
+                        .is_none_or(|value| value.chars().count() <= limit)
+                );
+            }
+            EntryData::Text | EntryData::Unknown => {}
+        }
+
+        if entry.kind == EntryKind::Text {
+            assert!(entry.text_content.is_none());
+        }
     }
 
     #[test]
@@ -212,6 +264,122 @@ mod tests {
                 .text_content
                 .is_some()
         );
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+
+    #[test]
+    fn entry_summaries_bound_legacy_payloads_without_changing_search_or_full_rows() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+        let legacy_payload = |marker: &str| format!("{}:{marker}", "x".repeat(64 * 1024));
+
+        let mut text = text_entry("legacy-text", "legacy text");
+        text.preview_text = Some(legacy_payload("shared-needle"));
+        text.text_content = Some(legacy_payload("shared-needle-text"));
+        let text_id = db.upsert_entry(&text).unwrap();
+
+        let mut image = image_entry("legacy-image", "legacy image");
+        image.preview_text = Some(legacy_payload("shared-needle"));
+        image.text_content = Some(legacy_payload("shared-needle-image"));
+        let image_id = db.upsert_entry(&image).unwrap();
+        let ocr = legacy_payload("shared-needle-ocr");
+        db.save_ocr_result(image_id, "eng", &ocr).unwrap();
+
+        let mut file = file_entry("legacy-file", "legacy file", "legacy-file");
+        file.preview_text = Some(legacy_payload("shared-needle"));
+        file.text_content = Some(legacy_payload("shared-needle-file"));
+        let file_id = db.upsert_entry(&file).unwrap();
+
+        let mut link = NewEntry::new(
+            "legacy-link".to_string(),
+            "text/plain".to_string(),
+            legacy_payload("shared-needle-link-title"),
+        );
+        let link_url = legacy_payload("shared-needle-link-url");
+        let link_domain = legacy_payload("shared-needle-link-domain");
+        let link_icon = legacy_payload("shared-needle-link-icon");
+        link.preview_text = Some(legacy_payload("shared-needle-link-preview"));
+        link.text_content = Some(legacy_payload("shared-needle-link-text"));
+        link.data = NewEntryData::Link {
+            url: link_url.clone(),
+            domain: link_domain.clone(),
+            icon: link_icon.clone(),
+        };
+        let link_id = db.upsert_entry(&link).unwrap();
+
+        assert_eq!(
+            db.count_entries("shared-needle", EntryFilter::All).unwrap(),
+            4
+        );
+        assert_eq!(
+            db.count_entries("shared-needle-ocr", EntryFilter::Images)
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            db.count_entries("shared-needle-link-url", EntryFilter::Links)
+                .unwrap(),
+            1
+        );
+
+        let page = db
+            .list_entry_summaries_page("shared-needle", EntryFilter::All, SortMode::Default, 10, 0)
+            .unwrap();
+        assert_eq!(page.len(), 4);
+        for entry in &page {
+            assert_bounded_summary(entry);
+        }
+
+        let link_page = db
+            .list_entry_summaries_page(
+                "shared-needle-link-url",
+                EntryFilter::Links,
+                SortMode::Default,
+                10,
+                0,
+            )
+            .unwrap();
+        assert_eq!(link_page.len(), 1);
+        assert_bounded_summary(&link_page[0]);
+
+        assert_eq!(
+            db.get_entry(text_id)
+                .unwrap()
+                .unwrap()
+                .text_content
+                .unwrap()
+                .len(),
+            64 * 1024 + 1 + "shared-needle-text".len()
+        );
+        assert_eq!(
+            db.get_entry(image_id).unwrap().unwrap().data,
+            EntryData::Image {
+                file_path: "/tmp/test.png".to_string(),
+                thumb_path: None,
+                ocr_text: Some(ocr),
+            }
+        );
+        assert_eq!(
+            db.get_entry(file_id)
+                .unwrap()
+                .unwrap()
+                .text_content
+                .unwrap()
+                .len(),
+            64 * 1024 + 1 + "shared-needle-file".len()
+        );
+        match db.get_entry(link_id).unwrap().unwrap().data {
+            EntryData::Link { url, domain, icon } => {
+                assert_eq!(url, link_url);
+                assert_eq!(domain, link_domain);
+                assert_eq!(icon, link_icon);
+            }
+            _ => panic!("expected full link entry"),
+        }
 
         drop(db);
         let _ = std::fs::remove_file(&path);

@@ -30,7 +30,6 @@ impl UiRuntime {
     pub(crate) fn show_reset(&self) -> Result<()> {
         use gtk4_layer_shell::{KeyboardMode, LayerShell};
 
-        let reset_on_show = self.state.reset_on_show.get();
         if self.state.reset_on_show.get() {
             *self.state.view.borrow_mut() = self.state.default_view.get();
             *self.state.query.borrow_mut() = String::new();
@@ -48,7 +47,7 @@ impl UiRuntime {
         if self.state.auto_focus_search.get() {
             self.state.search_entry.grab_focus();
         }
-        refresh_entries_after_present(&self.state, reset_on_show);
+        refresh_entries_after_present(&self.state);
         Ok(())
     }
 
@@ -71,6 +70,8 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     paths.ensure()?;
     let config = AppConfig::load(&paths)?;
     let db = Database::open(&paths.db_path)?;
+    let (list_request_tx, list_response_rx) =
+        crate::events::start_list_worker(paths.db_path.clone())?;
 
     crate::style::load_css(&config)?;
 
@@ -128,7 +129,10 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
 
     let state = Rc::new(AppState {
         db,
-        db_path: paths.db_path.clone(),
+        list_request_tx,
+        list_response_rx,
+        list_response_poll: RefCell::new(None),
+        list_generation: Cell::new(0),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
         history_limit: Cell::new(config.history.max_entries),
         auto_paste: Cell::new(config.paste.auto_paste),
@@ -204,19 +208,11 @@ fn configure_overlay_window(window: &gtk::ApplicationWindow, config: &AppConfig)
     window.set_anchor(Edge::Bottom, false);
 }
 
-fn refresh_entries_after_present(state: &Rc<AppState>, reset_on_show: bool) {
+fn refresh_entries_after_present(state: &Rc<AppState>) {
     let state = Rc::clone(state);
     gtk::glib::idle_add_local_once(move || {
         if let Err(err) = refresh_entries(&state) {
             crate::actions::set_footer(&state, &format!("Refresh failed: {err:#}"));
-            return;
-        }
-
-        if reset_on_show {
-            state.list_adjustment.set_value(0.0);
-            if let Some(row) = state.list.row_at_index(0) {
-                state.list.select_row(Some(&row));
-            }
         }
     });
 }

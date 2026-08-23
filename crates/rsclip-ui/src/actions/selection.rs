@@ -52,7 +52,7 @@ pub(crate) fn mark_selected_row(list: &gtk::ListBox, selected: Option<&gtk::List
     }
 }
 
-fn scroll_row_into_view(state: &Rc<AppState>, row: &gtk::ListBoxRow) {
+pub(crate) fn scroll_row_into_view(state: &Rc<AppState>, row: &gtk::ListBoxRow) {
     let Some(bounds) = row.compute_bounds(&state.list) else {
         return;
     };

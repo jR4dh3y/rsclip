@@ -1,13 +1,14 @@
-use std::cell::{Cell, RefCell};
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
+use anyhow::{Context, Result};
 use gtk::gdk;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::Database;
-use rsclip_core::models::{ClipboardEntry, EntryFilter, EntryKind, SecretEntry, SortMode};
+use rsclip_core::models::{EntryFilter, EntryKind};
 
 use crate::actions::clipboard::{copy_secret, copy_selected_entry};
 use crate::actions::ocr::run_ocr_for_entry;
@@ -22,42 +23,24 @@ use crate::actions::selection::{mark_selected_row, move_selection};
 use crate::actions::{set_footer, update_mode_controls};
 use crate::components::preview::{render_preview, render_secret_preview};
 use crate::state::{
-    AppState, AppView, current_entry, current_full_entry, current_secret, entry_at_row,
-    full_entry_at_row, secret_at_row,
+    AppState, AppView, ListRequest, ListResponse, ListResults, current_entry, current_full_entry,
+    current_secret, entry_at_row, full_entry_at_row, secret_at_row,
 };
 
 /// Delay before applying search so typing does not block the UI on every keystroke.
 const SEARCH_DEBOUNCE: Duration = Duration::from_millis(120);
-const SEARCH_RESULT_POLL: Duration = Duration::from_millis(16);
+const LIST_RESULT_POLL: Duration = Duration::from_millis(16);
 
-/// Immutable search parameters sent from GTK to the SQLite worker.
-#[derive(Clone)]
-struct SearchRequest {
-    generation: u64,
-    view: AppView,
-    query: String,
-    filter: EntryFilter,
-    sort: SortMode,
-    history_limit: usize,
-    row_limit: usize,
-}
-
-/// Payload returned by the worker for the active application view.
-enum SearchResults {
-    Clipboard {
-        total: usize,
-        entries: Vec<ClipboardEntry>,
-    },
-    Secrets {
-        total: usize,
-        secrets: Vec<SecretEntry>,
-    },
-}
-
-/// Worker output paired with its request metadata for stale-result validation.
-struct SearchResponse {
-    request: SearchRequest,
-    result: Result<SearchResults, String>,
+pub(crate) fn start_list_worker(
+    db_path: std::path::PathBuf,
+) -> Result<(mpsc::Sender<ListRequest>, mpsc::Receiver<ListResponse>)> {
+    let (request_tx, request_rx) = mpsc::channel();
+    let (response_tx, response_rx) = mpsc::channel();
+    std::thread::Builder::new()
+        .name("rsclip-list".to_string())
+        .spawn(move || list_worker(db_path, request_rx, response_tx))
+        .context("starting list worker")?;
+    Ok((request_tx, response_rx))
 }
 
 pub(crate) fn connect(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
@@ -148,32 +131,13 @@ fn connect_ocr_button(state: &Rc<AppState>) {
 
 /// Connect the debounced GTK search field to a persistent SQLite worker.
 fn connect_search(state: &Rc<AppState>) {
-    let (request_tx, request_rx) = mpsc::channel::<SearchRequest>();
-    let (response_tx, response_rx) = mpsc::channel::<SearchResponse>();
-    let db_path = state.db_path.clone();
-    if let Err(err) = std::thread::Builder::new()
-        .name("rsclip-search".to_string())
-        .spawn(move || search_worker(db_path, request_rx, response_tx))
-    {
-        set_footer(state, &format!("Could not start search worker: {err}"));
-        return;
-    }
-
-    let generation = Rc::new(Cell::new(0_u64));
-    let response_rx = Rc::new(response_rx);
-    let response_poll = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
-
     let search = state.search_entry.clone();
     let state = Rc::clone(state);
     let pending = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
     search.connect_search_changed(move |entry| {
         let text = entry.text().to_string();
-        let next_generation = generation.get().wrapping_add(1);
-        generation.set(next_generation);
+        crate::state::advance_list_generation(&state);
         if let Some(source_id) = pending.borrow_mut().take() {
-            source_id.remove();
-        }
-        if let Some(source_id) = response_poll.borrow_mut().take() {
             source_id.remove();
         }
         // Programmatic resets (tab switch, etc.) set query before set_text; still cancel any
@@ -185,83 +149,79 @@ fn connect_search(state: &Rc<AppState>) {
 
         let state = Rc::clone(&state);
         let pending_for_timeout = Rc::clone(&pending);
-        let request_tx = request_tx.clone();
-        let response_rx = Rc::clone(&response_rx);
-        let response_poll = Rc::clone(&response_poll);
-        let generation = Rc::clone(&generation);
         let source_id = gtk::glib::timeout_add_local_once(SEARCH_DEBOUNCE, move || {
             let _ = pending_for_timeout.borrow_mut().take();
-            let request = SearchRequest {
-                generation: next_generation,
+            let generation = crate::state::advance_list_generation(&state);
+            let request = ListRequest {
+                generation,
                 view: *state.view.borrow(),
                 query: state.query.borrow().clone(),
                 filter: *state.filter.borrow(),
                 sort: *state.sort.borrow(),
                 history_limit: state.history_limit.get(),
                 row_limit: search_window_row_count(&state),
+                requested_start: 0,
+                selected_index: 0,
+                preserve_scroll: false,
             };
-            if request_tx.send(request).is_err() {
-                set_footer(&state, "Search worker stopped");
+            if queue_list(&state, request).is_err() {
+                set_footer(&state, "List worker stopped");
             } else {
                 set_footer(&state, "Searching…");
-                start_search_response_poll(
-                    &state,
-                    &generation,
-                    &response_rx,
-                    &response_poll,
-                    next_generation,
-                );
             }
         });
         *pending.borrow_mut() = Some(source_id);
     });
 }
 
-/// Poll for one expected worker response only while a search is in flight.
-fn start_search_response_poll(
-    state: &Rc<AppState>,
-    generation: &Rc<Cell<u64>>,
-    response_rx: &Rc<mpsc::Receiver<SearchResponse>>,
-    pending_poll: &Rc<RefCell<Option<gtk::glib::SourceId>>>,
-    expected_generation: u64,
-) {
-    if let Some(source_id) = pending_poll.borrow_mut().take() {
+/// Queue one list query on the persistent worker and watch for its response.
+pub(crate) fn queue_list(state: &Rc<AppState>, request: ListRequest) -> Result<()> {
+    let generation = request.generation;
+    state
+        .list_request_tx
+        .send(request)
+        .map_err(|_| anyhow::anyhow!("list worker stopped"))?;
+    start_list_response_poll(state, generation);
+    Ok(())
+}
+
+/// Poll for one expected worker response only while a list query is in flight.
+fn start_list_response_poll(state: &Rc<AppState>, expected_generation: u64) {
+    if let Some(source_id) = state.list_response_poll.borrow_mut().take() {
         source_id.remove();
     }
 
     let state = Rc::clone(state);
-    let generation = Rc::clone(generation);
-    let response_rx = Rc::clone(response_rx);
-    let pending_poll_for_timeout = Rc::clone(pending_poll);
-    let source_id = gtk::glib::timeout_add_local(SEARCH_RESULT_POLL, move || {
+    let poll_state = Rc::clone(&state);
+    let source_id = gtk::glib::timeout_add_local(LIST_RESULT_POLL, move || {
         let mut received_expected = false;
-        while let Ok(response) = response_rx.try_recv() {
+        while let Ok(response) = poll_state.list_response_rx.try_recv() {
             received_expected |= response.request.generation == expected_generation;
-            apply_search_response(&state, &generation, response);
+            apply_list_response(&poll_state, response);
         }
 
         if received_expected {
-            let _ = pending_poll_for_timeout.borrow_mut().take();
+            let _ = poll_state.list_response_poll.borrow_mut().take();
             gtk::glib::ControlFlow::Break
         } else {
             gtk::glib::ControlFlow::Continue
         }
     });
-    *pending_poll.borrow_mut() = Some(source_id);
+    *state.list_response_poll.borrow_mut() = Some(source_id);
 }
 
-/// Own a dedicated SQLite connection and coalesce queued search requests.
-fn search_worker(
+/// Own a dedicated SQLite connection and coalesce queued list requests.
+fn list_worker(
     db_path: std::path::PathBuf,
-    request_rx: mpsc::Receiver<SearchRequest>,
-    response_tx: mpsc::Sender<SearchResponse>,
+    request_rx: mpsc::Receiver<ListRequest>,
+    response_tx: mpsc::Sender<ListResponse>,
 ) {
     let db = match Database::open(db_path) {
         Ok(db) => db,
         Err(err) => {
             for request in request_rx {
                 if response_tx
-                    .send(SearchResponse {
+                    .send(ListResponse {
                         request,
                         result: Err(format!("{err:#}")),
                     })
@@ -280,52 +240,65 @@ fn search_worker(
         while let Ok(newer) = request_rx.try_recv() {
             request = newer;
         }
-        let result = run_search(&db, &request).map_err(|err| format!("{err:#}"));
-        if response_tx
-            .send(SearchResponse { request, result })
-            .is_err()
-        {
+        let result = load_list(&db, &request).map_err(|err| format!("{err:#}"));
+        if response_tx.send(ListResponse { request, result }).is_err() {
             break;
         }
     }
 }
 
-/// Execute one paged search without accessing GTK-owned state.
-fn run_search(db: &Database, request: &SearchRequest) -> anyhow::Result<SearchResults> {
+/// Load one list window without accessing GTK-owned state.
+fn load_list(db: &Database, request: &ListRequest) -> anyhow::Result<ListResults> {
     Ok(match request.view {
         AppView::Clipboard => {
             let total = db
                 .count_entries(&request.query, request.filter)?
                 .min(request.history_limit);
-            let entries = if total == 0 {
+            let window_len = request.row_limit.min(total);
+            let start = request
+                .requested_start
+                .min(total.saturating_sub(window_len));
+            let entries = if total == 0 || window_len == 0 {
                 Vec::new()
             } else {
                 db.list_entry_summaries_page(
                     &request.query,
                     request.filter,
                     request.sort,
-                    request.row_limit.min(total),
-                    0,
+                    window_len,
+                    start,
                 )?
             };
-            SearchResults::Clipboard { total, entries }
+            ListResults::Clipboard {
+                total,
+                start,
+                entries,
+            }
         }
         AppView::Secrets => {
             let total = db.count_secrets(&request.query)?.min(request.history_limit);
-            let secrets = if total == 0 {
+            let window_len = request.row_limit.min(total);
+            let start = request
+                .requested_start
+                .min(total.saturating_sub(window_len));
+            let secrets = if total == 0 || window_len == 0 {
                 Vec::new()
             } else {
-                db.list_secrets_page(&request.query, request.row_limit.min(total), 0)?
+                db.list_secrets_page(&request.query, window_len, start)?
             };
-            SearchResults::Secrets { total, secrets }
+            ListResults::Secrets {
+                total,
+                start,
+                secrets,
+            }
         }
     })
 }
 
-/// Apply a response only when its complete search context is still current.
-fn apply_search_response(state: &Rc<AppState>, generation: &Cell<u64>, response: SearchResponse) {
+/// Apply a response only when its complete list context is still current.
+fn apply_list_response(state: &Rc<AppState>, response: ListResponse) {
     let request = &response.request;
-    let is_current = request.generation == generation.get()
+    let is_current = request.generation == state.list_generation.get()
         && request.view == *state.view.borrow()
         && request.query == *state.query.borrow()
         && request.filter == *state.filter.borrow()
@@ -335,13 +308,17 @@ fn apply_search_response(state: &Rc<AppState>, generation: &Cell<u64>, response:
     }
 
     match response.result {
-        Ok(SearchResults::Clipboard { total, entries }) => {
-            apply_clipboard_search_results(state, total, entries)
-        }
-        Ok(SearchResults::Secrets { total, secrets }) => {
-            apply_secret_search_results(state, total, secrets)
-        }
-        Err(err) => set_footer(state, &format!("Search failed: {err}")),
+        Ok(ListResults::Clipboard {
+            total,
+            start,
+            entries,
+        }) => apply_clipboard_search_results(state, request, total, start, entries),
+        Ok(ListResults::Secrets {
+            total,
+            start,
+            secrets,
+        }) => apply_secret_search_results(state, request, total, start, secrets),
+        Err(err) => set_footer(state, &format!("List refresh failed: {err}")),
     }
 }
 

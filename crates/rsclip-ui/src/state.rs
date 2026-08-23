@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::mpsc;
 
 use gtk::prelude::*;
 use gtk4 as gtk;
@@ -13,11 +14,47 @@ pub(crate) enum AppView {
     Secrets,
 }
 
+/// Immutable list parameters sent from GTK to the persistent SQLite worker.
+pub(crate) struct ListRequest {
+    pub(crate) generation: u64,
+    pub(crate) view: AppView,
+    pub(crate) query: String,
+    pub(crate) filter: EntryFilter,
+    pub(crate) sort: SortMode,
+    pub(crate) history_limit: usize,
+    pub(crate) row_limit: usize,
+    pub(crate) requested_start: usize,
+    pub(crate) selected_index: usize,
+    pub(crate) preserve_scroll: bool,
+}
+
+/// Rows returned by the worker for the active application view.
+pub(crate) enum ListResults {
+    Clipboard {
+        total: usize,
+        start: usize,
+        entries: Vec<ClipboardEntry>,
+    },
+    Secrets {
+        total: usize,
+        start: usize,
+        secrets: Vec<SecretEntry>,
+    },
+}
+
+/// Worker output paired with request metadata for stale-result validation.
+pub(crate) struct ListResponse {
+    pub(crate) request: ListRequest,
+    pub(crate) result: Result<ListResults, String>,
+}
+
 pub(crate) struct AppState {
-    /// Long-lived connection so search/list never re-open + re-migrate on the UI thread.
+    /// Long-lived connection for writes and explicit full-entry reads.
     pub(crate) db: Database,
-    /// Search uses a dedicated worker connection so SQLite never blocks GTK.
-    pub(crate) db_path: PathBuf,
+    pub(crate) list_request_tx: mpsc::Sender<ListRequest>,
+    pub(crate) list_response_rx: mpsc::Receiver<ListResponse>,
+    pub(crate) list_response_poll: RefCell<Option<gtk::glib::SourceId>>,
+    pub(crate) list_generation: Cell<u64>,
     pub(crate) favicon_icon_dir: PathBuf,
     pub(crate) history_limit: Cell<usize>,
     pub(crate) auto_paste: Cell<bool>,
@@ -60,6 +97,17 @@ pub(crate) struct AppState {
     pub(crate) details: gtk::Box,
     pub(crate) footer: gtk::Label,
     pub(crate) ocr_button: gtk::Button,
+}
+
+/// Invalidate queued and in-flight list work before changing its context.
+pub(crate) fn advance_list_generation(state: &AppState) -> u64 {
+    if let Some(source_id) = state.list_response_poll.borrow_mut().take() {
+        source_id.remove();
+    }
+
+    let generation = state.list_generation.get().wrapping_add(1);
+    state.list_generation.set(generation);
+    generation
 }
 
 /// Return the selected list summary without reading its full payload from SQLite.

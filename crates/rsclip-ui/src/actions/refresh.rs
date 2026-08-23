@@ -4,6 +4,7 @@ use anyhow::Result;
 use gtk4::prelude::*;
 use rsclip_core::models::{ClipboardEntry, SecretEntry};
 
+use crate::actions::selection::scroll_row_into_view;
 use crate::actions::set_footer;
 use crate::components::labels::muted_label;
 use crate::components::list::{entry_row, secret_row};
@@ -15,15 +16,24 @@ use crate::state::{
 
 const ESTIMATED_ROW_HEIGHT: f64 = 48.0;
 const MIN_VISIBLE_ROWS: usize = 20;
-const WINDOW_PADDING_ROWS: usize = 50;
+// Keep one fallback viewport on each side without rebuilding 100 off-screen rows.
+const WINDOW_PADDING_ROWS: usize = MIN_VISIBLE_ROWS;
 
 pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
-    load_window_from_start(state, 0, 0, false)
+    let generation = crate::state::advance_list_generation(state);
+    queue_window(state, generation, 0, 0, false)
 }
 
 pub(crate) fn refresh_entries_if_changed(state: &Rc<AppState>) -> Result<()> {
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
-    load_window_around(state, selected_index, true)
+    let generation = crate::state::advance_list_generation(state);
+    queue_window(
+        state,
+        generation,
+        selected_index.saturating_sub(WINDOW_PADDING_ROWS),
+        selected_index,
+        true,
+    )
 }
 
 pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
@@ -60,12 +70,13 @@ pub(crate) fn refresh_window_for_scroll(state: &Rc<AppState>) -> Result<()> {
     }
 
     let window_len = window_row_count(state, total);
-    let normalized_start = desired_start.min(total.saturating_sub(window_len));
+    let normalized_start = normalized_window_start(desired_start, total, window_len);
     let normalized_end = normalized_start.saturating_add(window_len);
     let selected_index = selected_index(state)
         .filter(|index| *index >= normalized_start && *index < normalized_end)
         .unwrap_or(first_visible);
-    load_window_from_start(state, normalized_start, selected_index, true)
+    let generation = crate::state::advance_list_generation(state);
+    queue_window(state, generation, normalized_start, selected_index, true)
 }
 
 pub(crate) fn ensure_row_rendered(state: &Rc<AppState>, index: usize) -> Result<()> {
@@ -75,36 +86,19 @@ pub(crate) fn ensure_row_rendered(state: &Rc<AppState>, index: usize) -> Result<
         return Ok(());
     }
 
-    load_window_around(state, index, true)
+    let generation = crate::state::advance_list_generation(state);
+    queue_window(
+        state,
+        generation,
+        index.saturating_sub(WINDOW_PADDING_ROWS),
+        index,
+        true,
+    )
 }
 
-fn load_window_around(
+fn queue_window(
     state: &Rc<AppState>,
-    selected_index: usize,
-    preserve_scroll: bool,
-) -> Result<()> {
-    let start = selected_index.saturating_sub(WINDOW_PADDING_ROWS);
-    load_window_from_start(state, start, selected_index, preserve_scroll)
-}
-
-fn load_window_from_start(
-    state: &Rc<AppState>,
-    requested_start: usize,
-    selected_index: usize,
-    preserve_scroll: bool,
-) -> Result<()> {
-    match *state.view.borrow() {
-        AppView::Clipboard => {
-            load_clipboard_window(state, requested_start, selected_index, preserve_scroll)
-        }
-        AppView::Secrets => {
-            load_secrets_window(state, requested_start, selected_index, preserve_scroll)
-        }
-    }
-}
-
-fn load_clipboard_window(
-    state: &Rc<AppState>,
+    generation: u64,
     requested_start: usize,
     selected_index: usize,
     preserve_scroll: bool,
@@ -112,89 +106,64 @@ fn load_clipboard_window(
     let query = state.query.borrow().clone();
     let filter = *state.filter.borrow();
     let sort = *state.sort.borrow();
-    let total = state
-        .db
-        .count_entries(&query, filter)?
-        .min(state.history_limit.get());
-    let window_len = window_row_count(state, total);
-    let start = requested_start.min(total.saturating_sub(window_len));
-    let entries = if total == 0 {
-        Vec::new()
+    let requested_start = if current_total(state) == 0 {
+        requested_start
     } else {
-        state
-            .db
-            .list_entry_summaries_page(&query, filter, sort, window_len, start)?
+        normalized_window_start(
+            requested_start,
+            current_total(state),
+            window_row_count(state, current_total(state)),
+        )
     };
-
-    state.secrets.borrow_mut().clear();
-    state.secrets_start.set(0);
-    state.secrets_total.set(0);
-    *state.entries.borrow_mut() = entries;
-    state.entries_start.set(start);
-    state.entries_total.set(total);
-
-    render_clipboard_window(state, Some(selected_index), preserve_scroll);
-    Ok(())
+    crate::events::queue_list(
+        state,
+        crate::state::ListRequest {
+            generation,
+            view: *state.view.borrow(),
+            query,
+            filter,
+            sort,
+            history_limit: state.history_limit.get(),
+            row_limit: search_window_row_count(state),
+            requested_start,
+            selected_index,
+            preserve_scroll,
+        },
+    )
 }
 
 /// Replace the visible clipboard window with a completed worker result.
 pub(crate) fn apply_clipboard_search_results(
     state: &Rc<AppState>,
+    request: &crate::state::ListRequest,
     total: usize,
+    start: usize,
     entries: Vec<ClipboardEntry>,
 ) {
     state.secrets.borrow_mut().clear();
     state.secrets_start.set(0);
     state.secrets_total.set(0);
     *state.entries.borrow_mut() = entries;
-    state.entries_start.set(0);
+    state.entries_start.set(start);
     state.entries_total.set(total);
-    render_clipboard_window(state, Some(0), false);
+    render_clipboard_window(state, Some(request.selected_index), request.preserve_scroll);
 }
 
 /// Replace the visible secrets window with a completed worker result.
 pub(crate) fn apply_secret_search_results(
     state: &Rc<AppState>,
+    request: &crate::state::ListRequest,
     total: usize,
+    start: usize,
     secrets: Vec<SecretEntry>,
 ) {
     state.entries.borrow_mut().clear();
     state.entries_start.set(0);
     state.entries_total.set(0);
     *state.secrets.borrow_mut() = secrets;
-    state.secrets_start.set(0);
-    state.secrets_total.set(total);
-    render_secrets_window(state, Some(0), false);
-}
-
-fn load_secrets_window(
-    state: &Rc<AppState>,
-    requested_start: usize,
-    selected_index: usize,
-    preserve_scroll: bool,
-) -> Result<()> {
-    let query = state.query.borrow().clone();
-    let total = state
-        .db
-        .count_secrets(&query)?
-        .min(state.history_limit.get());
-    let window_len = window_row_count(state, total);
-    let start = requested_start.min(total.saturating_sub(window_len));
-    let secrets = if total == 0 {
-        Vec::new()
-    } else {
-        state.db.list_secrets_page(&query, window_len, start)?
-    };
-
-    state.entries.borrow_mut().clear();
-    state.entries_start.set(0);
-    state.entries_total.set(0);
-    *state.secrets.borrow_mut() = secrets;
     state.secrets_start.set(start);
     state.secrets_total.set(total);
-
-    render_secrets_window(state, Some(selected_index), preserve_scroll);
-    Ok(())
+    render_secrets_window(state, Some(request.selected_index), request.preserve_scroll);
 }
 
 fn render_clipboard_window(
@@ -219,10 +188,13 @@ fn render_clipboard_window(
     let loaded_end = start.saturating_add(state.entries.borrow().len());
     append_bottom_spacer(state, total.saturating_sub(loaded_end));
 
-    select_clipboard_row(state, selected_index);
+    let selected_row = select_clipboard_row(state, selected_index);
     update_clipboard_count(state);
     update_clipboard_footer(state);
     restore_scroll_position(state, scroll_value, preserve_scroll);
+    if let Some(row) = selected_row.as_ref() {
+        scroll_row_into_view(state, row);
+    }
     state.virtual_list_update.set(false);
 }
 
@@ -246,14 +218,20 @@ fn render_secrets_window(
     let loaded_end = start.saturating_add(state.secrets.borrow().len());
     append_bottom_spacer(state, total.saturating_sub(loaded_end));
 
-    select_secret_row(state, selected_index);
+    let selected_row = select_secret_row(state, selected_index);
     update_secret_count(state);
     update_secret_footer(state);
     restore_scroll_position(state, scroll_value, preserve_scroll);
+    if let Some(row) = selected_row.as_ref() {
+        scroll_row_into_view(state, row);
+    }
     state.virtual_list_update.set(false);
 }
 
-fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
+fn select_clipboard_row(
+    state: &Rc<AppState>,
+    selected_index: Option<usize>,
+) -> Option<gtk4::ListBoxRow> {
     let total = state.entries_total.get();
     if total == 0 {
         crate::components::clear_box(&state.preview);
@@ -261,12 +239,12 @@ fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
         state
             .preview
             .append(&muted_label("No clipboard entries yet"));
-        return;
+        return None;
     }
     if state.entries.borrow().is_empty() {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
-        return;
+        return None;
     }
 
     let start = state.entries_start.get();
@@ -281,21 +259,26 @@ fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
         if let Some(entry) = state.entries.borrow().get(relative_index) {
             render_preview(state, entry);
         }
+        return Some(row);
     }
+    None
 }
 
-fn select_secret_row(state: &Rc<AppState>, selected_index: Option<usize>) {
+fn select_secret_row(
+    state: &Rc<AppState>,
+    selected_index: Option<usize>,
+) -> Option<gtk4::ListBoxRow> {
     let total = state.secrets_total.get();
     if total == 0 {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
         state.preview.append(&muted_label("No secrets saved yet"));
-        return;
+        return None;
     }
     if state.secrets.borrow().is_empty() {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
-        return;
+        return None;
     }
 
     let start = state.secrets_start.get();
@@ -310,7 +293,9 @@ fn select_secret_row(state: &Rc<AppState>, selected_index: Option<usize>) {
         if let Some(secret) = state.secrets.borrow().get(relative_index) {
             render_secret_preview(state, secret);
         }
+        return Some(row);
     }
+    None
 }
 
 fn append_top_spacer(state: &Rc<AppState>, rows: usize) {
@@ -377,14 +362,22 @@ fn window_row_count(state: &Rc<AppState>, total: usize) -> usize {
         return 0;
     }
 
-    visible_row_count(state)
+    window_row_count_for(visible_row_count(state), total)
+}
+
+/// Calculate the number of rows requested by the background list worker.
+pub(crate) fn search_window_row_count(state: &Rc<AppState>) -> usize {
+    window_row_count_for(visible_row_count(state), usize::MAX)
+}
+
+fn window_row_count_for(visible_rows: usize, total: usize) -> usize {
+    visible_rows
         .saturating_add(WINDOW_PADDING_ROWS * 2)
         .min(total)
 }
 
-/// Calculate the number of rows requested by the background search worker.
-pub(crate) fn search_window_row_count(state: &Rc<AppState>) -> usize {
-    visible_row_count(state).saturating_add(WINDOW_PADDING_ROWS * 2)
+fn normalized_window_start(requested_start: usize, total: usize, window_len: usize) -> usize {
+    requested_start.min(total.saturating_sub(window_len))
 }
 
 fn selected_index(state: &Rc<AppState>) -> Option<usize> {
@@ -446,5 +439,29 @@ fn update_secret_footer(state: &Rc<AppState>) {
         );
     } else {
         set_footer(state, "");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalized_window_start, window_row_count_for};
+
+    #[test]
+    fn result_window_is_bounded_for_large_history() {
+        assert_eq!(window_row_count_for(20, usize::MAX), 60);
+    }
+
+    #[test]
+    fn result_window_never_exceeds_total() {
+        assert_eq!(window_row_count_for(20, 12), 12);
+        assert_eq!(window_row_count_for(20, 0), 0);
+    }
+
+    #[test]
+    fn requested_start_is_clamped_to_last_full_window() {
+        assert_eq!(normalized_window_start(900, 1_000, 60), 900);
+        assert_eq!(normalized_window_start(999, 1_000, 60), 940);
+        assert_eq!(normalized_window_start(1_975, 2_000, 60), 1_940);
+        assert_eq!(normalized_window_start(900, 12, 12), 0);
     }
 }

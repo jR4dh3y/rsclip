@@ -148,7 +148,46 @@ fn first_line_title(text: &str) -> String {
 }
 
 fn preview_text(text: &str) -> String {
-    truncate(&text.split_whitespace().collect::<Vec<_>>().join(" "), 320)
+    const MAX_CHARS: usize = 320;
+
+    let mut preview = String::with_capacity(MAX_CHARS);
+    let mut normalized_chars = 0;
+    let mut pending_space = false;
+
+    for character in text.chars() {
+        if character.is_whitespace() {
+            if !preview.is_empty() {
+                pending_space = true;
+            }
+            continue;
+        }
+
+        if pending_space {
+            normalized_chars += 1;
+            if normalized_chars > MAX_CHARS {
+                return truncated_preview(&preview);
+            }
+            preview.push(' ');
+            pending_space = false;
+        }
+
+        normalized_chars += 1;
+        if normalized_chars > MAX_CHARS {
+            return truncated_preview(&preview);
+        }
+        preview.push(character);
+    }
+
+    preview
+}
+
+fn truncated_preview(value: &str) -> String {
+    const PREFIX_CHARS: usize = 317;
+    let prefix = value
+        .char_indices()
+        .nth(PREFIX_CHARS)
+        .map_or(value, |(index, _)| &value[..index]);
+    format!("{prefix}...")
 }
 
 fn truncate(value: &str, max_chars: usize) -> String {
@@ -267,5 +306,31 @@ mod tests {
         assert!(matches!(entry.data, NewEntryData::Text));
         assert_eq!(entry.mime_type, "text/uri-list");
         assert_eq!(entry.text_content.as_deref(), Some("not a uri"));
+    }
+
+    #[test]
+    fn bounds_preview_for_large_multiline_text() {
+        let text = (0..10_000)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>();
+
+        let preview = preview_text(&text);
+
+        assert_eq!(preview.chars().count(), 320);
+        assert!(preview.ends_with("..."));
+        assert!(preview.starts_with("line 0 line 1 line 2"));
+        assert!(!preview.contains("line 9999"));
+    }
+
+    #[test]
+    fn truncates_at_unicode_character_boundary() {
+        let text = format!("{}🙂 trailing", "a".repeat(316));
+
+        assert_eq!(preview_text(&text), format!("{}🙂...", "a".repeat(316)));
+    }
+
+    #[test]
+    fn preview_normalizes_unicode_whitespace() {
+        assert_eq!(preview_text("\u{2003}one\n\t two\u{00a0}"), "one two");
     }
 }
