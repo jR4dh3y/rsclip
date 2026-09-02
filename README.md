@@ -193,7 +193,7 @@ rsclipd favicons clear
 ### v0.1.14
 
 - Kept startup, search, filters, notifications, and virtual-list paging off the GTK thread.
-- Bounded legacy list fields and large text previews while preserving full content for copy and paste.
+- Rendered full entry text in a scrollable preview pane while keeping list paging light.
 - Coalesced queued list requests and rejected stale results while the user keeps typing.
 
 ## Release and AUR

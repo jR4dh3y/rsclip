@@ -4,7 +4,6 @@ use anyhow::Result;
 use gtk4::prelude::*;
 use rsclip_core::models::{ClipboardEntry, SecretEntry};
 
-use crate::actions::selection::scroll_row_into_view;
 use crate::actions::set_footer;
 use crate::components::labels::muted_label;
 use crate::components::list::{entry_row, secret_row};
@@ -188,13 +187,15 @@ fn render_clipboard_window(
     let loaded_end = start.saturating_add(state.entries.borrow().len());
     append_bottom_spacer(state, total.saturating_sub(loaded_end));
 
-    let selected_row = select_clipboard_row(state, selected_index);
+    select_clipboard_row(state, selected_index);
     update_clipboard_count(state);
     update_clipboard_footer(state);
-    restore_scroll_position(state, scroll_value, preserve_scroll);
-    if let Some(row) = selected_row.as_ref() {
-        scroll_row_into_view(state, row);
-    }
+    restore_scroll_position(
+        state,
+        scroll_value,
+        clamped_window_index(state, selected_index),
+        preserve_scroll,
+    );
     state.virtual_list_update.set(false);
 }
 
@@ -218,20 +219,37 @@ fn render_secrets_window(
     let loaded_end = start.saturating_add(state.secrets.borrow().len());
     append_bottom_spacer(state, total.saturating_sub(loaded_end));
 
-    let selected_row = select_secret_row(state, selected_index);
+    select_secret_row(state, selected_index);
     update_secret_count(state);
     update_secret_footer(state);
-    restore_scroll_position(state, scroll_value, preserve_scroll);
-    if let Some(row) = selected_row.as_ref() {
-        scroll_row_into_view(state, row);
-    }
+    restore_scroll_position(
+        state,
+        scroll_value,
+        clamped_window_index(state, selected_index),
+        preserve_scroll,
+    );
     state.virtual_list_update.set(false);
 }
 
-fn select_clipboard_row(
-    state: &Rc<AppState>,
-    selected_index: Option<usize>,
-) -> Option<gtk4::ListBoxRow> {
+/// Clamp a requested index into the currently rendered window.
+fn clamped_window_index(state: &Rc<AppState>, selected_index: Option<usize>) -> Option<usize> {
+    let start = current_start(state);
+    let len = current_len(state);
+    let total = current_total(state);
+    if total == 0 || len == 0 {
+        return None;
+    }
+
+    let end = start.saturating_add(len);
+    Some(
+        selected_index
+            .unwrap_or(start)
+            .min(total.saturating_sub(1))
+            .clamp(start, end.saturating_sub(1)),
+    )
+}
+
+fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     let total = state.entries_total.get();
     if total == 0 {
         crate::components::clear_box(&state.preview);
@@ -239,12 +257,12 @@ fn select_clipboard_row(
         state
             .preview
             .append(&muted_label("No clipboard entries yet"));
-        return None;
+        return;
     }
     if state.entries.borrow().is_empty() {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
-        return None;
+        return;
     }
 
     let start = state.entries_start.get();
@@ -259,26 +277,21 @@ fn select_clipboard_row(
         if let Some(entry) = state.entries.borrow().get(relative_index) {
             render_preview(state, entry);
         }
-        return Some(row);
     }
-    None
 }
 
-fn select_secret_row(
-    state: &Rc<AppState>,
-    selected_index: Option<usize>,
-) -> Option<gtk4::ListBoxRow> {
+fn select_secret_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     let total = state.secrets_total.get();
     if total == 0 {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
         state.preview.append(&muted_label("No secrets saved yet"));
-        return None;
+        return;
     }
     if state.secrets.borrow().is_empty() {
         crate::components::clear_box(&state.preview);
         crate::components::clear_box(&state.details);
-        return None;
+        return;
     }
 
     let start = state.secrets_start.get();
@@ -293,9 +306,7 @@ fn select_secret_row(
         if let Some(secret) = state.secrets.borrow().get(relative_index) {
             render_secret_preview(state, secret);
         }
-        return Some(row);
     }
-    None
 }
 
 fn append_top_spacer(state: &Rc<AppState>, rows: usize) {
@@ -315,6 +326,10 @@ fn spacer_row(rows: usize) -> gtk4::ListBoxRow {
     row.add_css_class("virtual-spacer-row");
     row.set_selectable(false);
     row.set_activatable(false);
+    // Spacers can span the whole viewport; keep pointer/focus state from
+    // painting row styles (hover background) across the list.
+    row.set_can_target(false);
+    row.set_focusable(false);
 
     let spacer = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
     spacer.set_height_request(spacer_height(rows));
@@ -328,16 +343,53 @@ fn spacer_height(rows: usize) -> i32 {
         .clamp(0.0, i32::MAX as f64) as i32
 }
 
-fn restore_scroll_position(state: &Rc<AppState>, scroll_value: f64, preserve_scroll: bool) {
-    if preserve_scroll {
-        let max_value = (state.list_adjustment.upper() - state.list_adjustment.page_size())
-            .max(state.list_adjustment.lower());
+/// Restore the scroll position after a window rebuild.
+///
+/// Spacers are sized from [`ESTIMATED_ROW_HEIGHT`] while real rows differ,
+/// so a restored raw offset drifts with window depth and can land inside a
+/// spacer, leaving the viewport empty. Instead, check the selected row's
+/// estimated position against the restored viewport and re-anchor the scroll
+/// to that row when it falls outside, clamped against the freshly computed
+/// content size rather than the not-yet-updated adjustment.
+fn restore_scroll_position(
+    state: &Rc<AppState>,
+    scroll_value: f64,
+    selected_index: Option<usize>,
+    preserve_scroll: bool,
+) {
+    if !preserve_scroll {
+        state.list_adjustment.set_value(0.0);
+        return;
+    }
+
+    let start = current_start(state);
+    let len = current_len(state);
+    let total = current_total(state);
+    let page_size = state.list_adjustment.page_size();
+
+    let content_height = f64::from(spacer_height(start))
+        + len as f64 * ESTIMATED_ROW_HEIGHT
+        + f64::from(spacer_height(total.saturating_sub(start + len)));
+    let max_value = (content_height - page_size).max(0.0);
+
+    let Some(index) = selected_index else {
         state
             .list_adjustment
-            .set_value(scroll_value.clamp(state.list_adjustment.lower(), max_value));
+            .set_value(scroll_value.clamp(0.0, max_value));
+        return;
+    };
+
+    let row_top = f64::from(spacer_height(start)) + (index - start) as f64 * ESTIMATED_ROW_HEIGHT;
+    let row_bottom = row_top + ESTIMATED_ROW_HEIGHT;
+    let viewport_top = scroll_value;
+    let viewport_bottom = scroll_value + page_size;
+
+    let value = if row_top >= viewport_top && row_bottom <= viewport_bottom {
+        scroll_value
     } else {
-        state.list_adjustment.set_value(0.0);
-    }
+        (row_top - page_size * 0.25).max(0.0)
+    };
+    state.list_adjustment.set_value(value.min(max_value));
 }
 
 fn visible_first_index(state: &Rc<AppState>) -> usize {

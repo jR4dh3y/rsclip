@@ -12,9 +12,6 @@ use crate::components::details::{render_details, render_secret_details};
 use crate::components::labels::{muted_label, section_label};
 use crate::state::AppState;
 
-const MAX_PREVIEW_BYTES: usize = 32 * 1024;
-const PREVIEW_TRUNCATED_NOTICE: &str = "\n\n[Preview truncated — copy the entry for full content]";
-
 pub(crate) struct PreviewPanel {
     pub(crate) shell: gtk::Box,
     pub(crate) preview: gtk::Box,
@@ -68,6 +65,8 @@ pub(crate) fn render_secret_preview(state: &Rc<AppState>, secret: &SecretEntry) 
     let scroller = gtk::ScrolledWindow::builder()
         .min_content_height(80)
         .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .propagate_natural_height(false)
         .child(&view)
         .build();
     state.preview.append(&scroller);
@@ -148,20 +147,28 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         .set_opacity(if can_ocr { 1.0 } else { 0.0 });
     state.ocr_button.set_sensitive(can_ocr);
 
-    match &entry.data {
-        EntryData::Image { .. } => render_image_preview(&state.preview, entry),
+    // Summary rows omit text payloads; re-read the selected entry so text and
+    // OCR previews show the complete content instead of a stored snippet.
+    let full = match &entry.data {
+        EntryData::Text | EntryData::Unknown | EntryData::Image { .. } => {
+            full_entry_for_preview(state, entry)
+        }
+        _ => entry.clone(),
+    };
+
+    match &full.data {
+        EntryData::Image { .. } => render_image_preview(&state.preview, &full),
         EntryData::Color { value, .. } => render_color_preview(&state.preview, value),
         EntryData::Link { url, .. } => {
             render_text_preview(&state.preview, Some(url));
         }
-        EntryData::File { .. } => render_file_preview(state, entry),
+        EntryData::File { .. } => render_file_preview(state, &full),
         EntryData::Text | EntryData::Unknown => {
             render_text_preview(
                 &state.preview,
-                entry
-                    .text_content
+                full.text_content
                     .as_deref()
-                    .or(entry.preview_text.as_deref()),
+                    .or(full.preview_text.as_deref()),
             );
         }
     }
@@ -169,7 +176,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     if let EntryData::Image {
         ocr_text: Some(ocr),
         ..
-    } = &entry.data
+    } = &full.data
         && !ocr.is_empty()
     {
         render_ocr_header(state, ocr);
@@ -323,10 +330,21 @@ fn render_ocr_header(state: &Rc<AppState>, ocr: &str) {
     state.preview.append(&header);
 }
 
+/// Re-read one entry from SQLite so previews can show the full payload.
+///
+/// Falls back to the summary row when the entry vanished or the read failed.
+fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> ClipboardEntry {
+    state
+        .db
+        .get_entry(entry.id)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| entry.clone())
+}
+
 fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
     let buffer = gtk::TextBuffer::new(None);
-    let text = bounded_preview(text.unwrap_or(""));
-    buffer.set_text(&text);
+    buffer.set_text(text.unwrap_or(""));
     let view = gtk::TextView::with_buffer(&buffer);
     view.add_css_class("preview-text");
     view.set_editable(false);
@@ -335,47 +353,14 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
     view.set_monospace(true);
     view.set_vexpand(true);
 
+    // Fill the preview pane and scroll long content internally so the whole
+    // entry stays reachable without truncating the buffer.
     let scroller = gtk::ScrolledWindow::builder()
         .min_content_height(80)
         .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .propagate_natural_height(false)
         .child(&view)
         .build();
     container.append(&scroller);
-}
-
-/// Truncate preview text without splitting a UTF-8 code point.
-fn bounded_preview(text: &str) -> std::borrow::Cow<'_, str> {
-    if text.len() <= MAX_PREVIEW_BYTES {
-        return std::borrow::Cow::Borrowed(text);
-    }
-
-    let mut end = MAX_PREVIEW_BYTES;
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    let mut preview = String::with_capacity(end + PREVIEW_TRUNCATED_NOTICE.len());
-    preview.push_str(&text[..end]);
-    preview.push_str(PREVIEW_TRUNCATED_NOTICE);
-    std::borrow::Cow::Owned(preview)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{MAX_PREVIEW_BYTES, PREVIEW_TRUNCATED_NOTICE, bounded_preview};
-
-    #[test]
-    fn preview_is_bounded_on_utf8_boundary() {
-        let text = "🦀".repeat(MAX_PREVIEW_BYTES);
-        let preview = bounded_preview(&text);
-
-        assert!(preview.ends_with(PREVIEW_TRUNCATED_NOTICE));
-        assert!(preview.len() <= MAX_PREVIEW_BYTES + PREVIEW_TRUNCATED_NOTICE.len());
-        assert!(std::str::from_utf8(preview.as_bytes()).is_ok());
-    }
-
-    #[test]
-    fn small_preview_is_unchanged() {
-        let text = "small clipboard entry";
-        assert_eq!(bounded_preview(text), text);
-    }
 }

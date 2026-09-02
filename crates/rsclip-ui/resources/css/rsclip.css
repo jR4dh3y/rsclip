@@ -148,9 +148,14 @@ button.mode-button.active-mode label {
   margin: 2px 6px;
 }
 
-.virtual-spacer-row,
-.virtual-spacer-row:hover,
-.virtual-spacer-row:selected {
+/* Spacer rows may fill the whole viewport; out-specificity the row hover and
+   selection rules so they can never paint a full-screen highlight. */
+.entry-list row.virtual-spacer-row,
+.entry-list row.virtual-spacer-row:hover,
+.entry-list row.virtual-spacer-row:selected,
+listbox row.virtual-spacer-row,
+listbox row.virtual-spacer-row:hover,
+listbox row.virtual-spacer-row:selected {
   background: transparent;
   background-color: transparent;
   margin: 0;
