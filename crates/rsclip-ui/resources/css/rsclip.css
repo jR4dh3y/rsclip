@@ -148,9 +148,14 @@ button.mode-button.active-mode label {
   margin: 2px 6px;
 }
 
-.virtual-spacer-row,
-.virtual-spacer-row:hover,
-.virtual-spacer-row:selected {
+/* Spacer rows may fill the whole viewport; out-specificity the row hover and
+   selection rules so they can never paint a full-screen highlight. */
+.entry-list row.virtual-spacer-row,
+.entry-list row.virtual-spacer-row:hover,
+.entry-list row.virtual-spacer-row:selected,
+listbox row.virtual-spacer-row,
+listbox row.virtual-spacer-row:hover,
+listbox row.virtual-spacer-row:selected {
   background: transparent;
   background-color: transparent;
   margin: 0;
@@ -310,6 +315,44 @@ listbox row.entry-row:selected .kind-badge image {
   border-radius: 0;
   color: @text;
   padding: 8px;
+}
+
+/* Overlay scrollbar pill: theme scrollbars vary between systems, so pin the
+   look to a thin rounded slider on a transparent trough. */
+scrollbar {
+  background: transparent;
+}
+
+scrollbar > range > trough {
+  background: transparent;
+  background-color: transparent;
+  border: none;
+  min-width: 13px;
+  min-height: 13px;
+}
+
+scrollbar > range > trough > slider {
+  background-color: alpha(@text, 0.85);
+  border: 1px solid alpha(@scrim_bg, 0.9);
+  border-radius: 9999px;
+  margin: 2px;
+  min-height: 40px;
+  min-width: 9px;
+}
+
+scrollbar.horizontal > range > trough > slider {
+  min-height: 9px;
+  min-width: 40px;
+}
+
+scrollbar:hover > range > trough > slider,
+scrollbar.hovering > range > trough > slider {
+  background-color: @text;
+}
+
+.preview-pane scrollbar > range > trough {
+  min-width: 11px;
+  min-height: 11px;
 }
 
 .inline-dialog-scrim {
