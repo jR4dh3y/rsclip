@@ -198,6 +198,6 @@ rsclipd favicons clear
 
 ## Release and AUR
 
-Build the release archive locally with `./scripts/build-release-archive.sh 0.1.14`.
-Pushing a matching `v0.1.14` tag runs the release workflow, publishes the archive,
+Build the release archive locally with `./scripts/build-release-archive.sh 0.1.15`.
+Pushing a matching `v0.1.15` tag runs the release workflow, publishes the archive,
 and updates the `rsclip-bin` AUR package.
