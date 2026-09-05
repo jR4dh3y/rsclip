@@ -54,7 +54,7 @@ fn truncate_to_line_boundary(payload: &str, max_bytes: usize) -> &str {
     }
     match payload[..end].rfind('\n') {
         Some(pos) => &payload[..pos + 1],
-        None => &payload[..end],
+        None => "",
     }
 }
 
