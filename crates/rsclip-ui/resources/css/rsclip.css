@@ -333,7 +333,6 @@ scrollbar > range > trough {
 
 scrollbar > range > trough > slider {
   background-color: alpha(@text, 0.85);
-  background: alpha(@text, 0.85);
   border: 1px solid alpha(@scrim_bg, 0.9);
   border-radius: 9999px;
   margin: 2px;
@@ -349,7 +348,6 @@ scrollbar.horizontal > range > trough > slider {
 scrollbar:hover > range > trough > slider,
 scrollbar.hovering > range > trough > slider {
   background-color: @text;
-  background: @text;
 }
 
 .preview-pane scrollbar > range > trough {

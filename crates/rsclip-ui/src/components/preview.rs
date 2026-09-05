@@ -4,7 +4,7 @@ use gtk::gdk;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::colors::parse_color;
-use rsclip_core::files::parse_uri_list;
+use rsclip_core::files::{URI_LIST_PREVIEW_MAX_FILES, parse_uri_list_bounded};
 use rsclip_core::format::masked_secret;
 use rsclip_core::models::{ClipboardEntry, EntryData, SecretEntry};
 
@@ -15,7 +15,7 @@ use crate::state::AppState;
 /// UI-side safety net for previews. The daemon bounds new payloads with
 /// `max_text_bytes` (default 1 MiB), but legacy rows can be larger; cap what
 /// the `TextView` layouts so one bloated row cannot freeze the GTK thread.
-const MAX_FULL_PREVIEW_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_FULL_PREVIEW_BYTES: usize = 1024 * 1024;
 const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
     "\n\n[Preview truncated — copy the entry for full content]";
 
@@ -231,12 +231,17 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
             .append(&muted_label("File list is unavailable"));
         return;
     };
-    let files = parse_uri_list(payload);
-    if files.is_empty() {
+    // Bound parsing, allocation, and `exists()` stats before touching the
+    // payload: legacy rows can hold thousands of URIs and this runs on the
+    // GTK thread.
+    let bounded =
+        parse_uri_list_bounded(payload, URI_LIST_PREVIEW_MAX_FILES, MAX_FULL_PREVIEW_BYTES);
+    if bounded.files.is_empty() {
         render_text_preview(&state.preview, Some(payload));
         return;
     }
 
+    let files = &bounded.files;
     let paths = files
         .iter()
         .map(|file| file.path.to_string_lossy().to_string())
@@ -251,7 +256,11 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     title.set_hexpand(true);
     header.append(&title);
 
-    let mut status = file_count_label(files.len());
+    let mut status = if bounded.truncated {
+        format!("{}+ files", files.len())
+    } else {
+        file_count_label(files.len())
+    };
     if missing_count > 0 {
         status.push_str(&format!(", {missing_count} missing"));
     }
@@ -272,6 +281,13 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
     header.append(&copy);
     state.preview.append(&header);
+
+    // "Copy paths" only copies the shown subset, so label partial results.
+    if bounded.truncated {
+        state.preview.append(&muted_label(
+            "[File list truncated — copy the entry for the full list]",
+        ));
+    }
 
     render_text_preview(&state.preview, Some(&paths));
 }
