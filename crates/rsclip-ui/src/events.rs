@@ -346,6 +346,12 @@ fn connect_list_selection(state: &Rc<AppState>) {
     let state = Rc::clone(state);
     list.connect_row_selected(move |list, row| {
         mark_selected_row(list, row);
+        // Window rebuilds already render the preview directly via
+        // select_*_row; skipping here avoids a second sync DB read and
+        // TextView layout per rebuild.
+        if state.virtual_list_update.get() {
+            return;
+        }
         if let Some(row) = row {
             let index = row.index();
             if index >= 0 {

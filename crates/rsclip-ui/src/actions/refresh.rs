@@ -233,20 +233,33 @@ fn render_secrets_window(
 
 /// Clamp a requested index into the currently rendered window.
 fn clamped_window_index(state: &Rc<AppState>, selected_index: Option<usize>) -> Option<usize> {
-    let start = current_start(state);
-    let len = current_len(state);
-    let total = current_total(state);
+    clamp_window_index(
+        current_start(state),
+        current_len(state),
+        current_total(state),
+        selected_index,
+    )
+}
+
+fn clamp_window_index(
+    start: usize,
+    len: usize,
+    total: usize,
+    selected_index: Option<usize>,
+) -> Option<usize> {
     if total == 0 || len == 0 {
         return None;
     }
 
+    // Intersect the rendered window with [0, total-1]; a stale start beyond
+    // total (e.g. after a filter shrink) falls back to the last row instead
+    // of panicking on an empty clamp range.
+    let last = total.saturating_sub(1);
     let end = start.saturating_add(len);
-    Some(
-        selected_index
-            .unwrap_or(start)
-            .min(total.saturating_sub(1))
-            .clamp(start, end.saturating_sub(1)),
-    )
+    let lo = start.min(last);
+    let hi = end.saturating_sub(1).min(last);
+    let (lo, hi) = if lo <= hi { (lo, hi) } else { (last, last) };
+    Some(selected_index.unwrap_or(lo).min(last).clamp(lo, hi))
 }
 
 fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
@@ -266,9 +279,13 @@ fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     }
 
     let start = state.entries_start.get();
-    let end = start.saturating_add(state.entries.borrow().len());
-    let selected_index = selected_index.unwrap_or(start).min(total.saturating_sub(1));
-    let selected_index = selected_index.clamp(start, end.saturating_sub(1));
+    let len = state.entries.borrow().len();
+    let end = start.saturating_add(len);
+    let last = total.saturating_sub(1);
+    let lo = start.min(last);
+    let hi = end.saturating_sub(1).min(last);
+    let (lo, hi) = if lo <= hi { (lo, hi) } else { (last, last) };
+    let selected_index = selected_index.unwrap_or(lo).min(last).clamp(lo, hi);
     if let Some(row_index) = row_index_for_entry(state, selected_index)
         && let Some(row) = state.list.row_at_index(row_index)
     {
@@ -295,9 +312,13 @@ fn select_secret_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     }
 
     let start = state.secrets_start.get();
-    let end = start.saturating_add(state.secrets.borrow().len());
-    let selected_index = selected_index.unwrap_or(start).min(total.saturating_sub(1));
-    let selected_index = selected_index.clamp(start, end.saturating_sub(1));
+    let len = state.secrets.borrow().len();
+    let end = start.saturating_add(len);
+    let last = total.saturating_sub(1);
+    let lo = start.min(last);
+    let hi = end.saturating_sub(1).min(last);
+    let (lo, hi) = if lo <= hi { (lo, hi) } else { (last, last) };
+    let selected_index = selected_index.unwrap_or(lo).min(last).clamp(lo, hi);
     if let Some(row_index) = row_index_for_secret(state, selected_index)
         && let Some(row) = state.list.row_at_index(row_index)
     {
@@ -369,7 +390,9 @@ fn restore_scroll_position(
 
     let content_height = f64::from(spacer_height(start))
         + len as f64 * ESTIMATED_ROW_HEIGHT
-        + f64::from(spacer_height(total.saturating_sub(start + len)));
+        + f64::from(spacer_height(
+            total.saturating_sub(start.saturating_add(len)),
+        ));
     let max_value = (content_height - page_size).max(0.0);
 
     let Some(index) = selected_index else {
@@ -379,7 +402,8 @@ fn restore_scroll_position(
         return;
     };
 
-    let row_top = f64::from(spacer_height(start)) + (index - start) as f64 * ESTIMATED_ROW_HEIGHT;
+    let row_top =
+        f64::from(spacer_height(start)) + index.saturating_sub(start) as f64 * ESTIMATED_ROW_HEIGHT;
     let row_bottom = row_top + ESTIMATED_ROW_HEIGHT;
     let viewport_top = scroll_value;
     let viewport_bottom = scroll_value + page_size;
@@ -496,7 +520,7 @@ fn update_secret_footer(state: &Rc<AppState>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalized_window_start, window_row_count_for};
+    use super::{clamp_window_index, normalized_window_start, window_row_count_for};
 
     #[test]
     fn result_window_is_bounded_for_large_history() {
@@ -515,5 +539,23 @@ mod tests {
         assert_eq!(normalized_window_start(999, 1_000, 60), 940);
         assert_eq!(normalized_window_start(1_975, 2_000, 60), 1_940);
         assert_eq!(normalized_window_start(900, 12, 12), 0);
+    }
+
+    #[test]
+    fn window_index_clamps_into_rendered_window() {
+        assert_eq!(clamp_window_index(100, 60, 1_000, Some(120)), Some(120));
+        assert_eq!(clamp_window_index(100, 60, 1_000, Some(0)), Some(100));
+        assert_eq!(clamp_window_index(100, 60, 1_000, Some(999)), Some(159));
+        assert_eq!(clamp_window_index(100, 60, 1_000, None), Some(100));
+        assert_eq!(clamp_window_index(0, 0, 1_000, Some(5)), None);
+        assert_eq!(clamp_window_index(0, 60, 0, Some(5)), None);
+    }
+
+    #[test]
+    fn window_index_handles_saturating_edge() {
+        assert_eq!(
+            clamp_window_index(usize::MAX, 10, usize::MAX, Some(usize::MAX)),
+            Some(usize::MAX.saturating_sub(1))
+        );
     }
 }
