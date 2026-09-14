@@ -9,7 +9,9 @@ use gtk4 as gtk;
 use gtk4::prelude::*;
 use rsclip_core::notify::{CHANGE_EVENT, FAVICON_EVENT};
 
-use crate::actions::refresh::{refresh_entries_if_changed, rerender_current_list};
+use crate::actions::refresh::{
+    refresh_entries, refresh_entries_if_changed, rerender_current_list,
+};
 use crate::actions::set_footer;
 use crate::state::AppState;
 
@@ -59,11 +61,15 @@ pub(crate) fn install_change_listener(
                 }
             }
 
-            if changed
-                && window.is_visible()
-                && let Err(err) = refresh_entries_if_changed(&state)
-            {
-                set_footer(&state, &format!("Refresh failed: {err:#}"));
+            if changed {
+                if window.is_visible() {
+                    if let Err(err) = refresh_entries_if_changed(&state) {
+                        set_footer(&state, &format!("Refresh failed: {err:#}"));
+                    }
+                } else {
+                    // Keep resident UI warm and fresh in background so opening is instant.
+                    let _ = refresh_entries(&state);
+                }
             }
             if favicons_changed && window.is_visible() {
                 rerender_current_list(&state);

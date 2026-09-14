@@ -7,7 +7,7 @@ use rsclip_core::models::{ClipboardEntry, SecretEntry};
 use crate::actions::set_footer;
 use crate::components::labels::muted_label;
 use crate::components::list::{entry_row, secret_row};
-use crate::components::preview::{render_preview, render_secret_preview};
+use crate::components::preview::{clear_preview_state, render_preview, render_secret_preview};
 use crate::state::{
     AppState, AppView, current_entry_index, current_secret_index, row_index_for_entry,
     row_index_for_secret,
@@ -265,16 +265,14 @@ fn clamp_window_index(
 fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     let total = state.entries_total.get();
     if total == 0 {
-        crate::components::clear_box(&state.preview);
-        crate::components::clear_box(&state.details);
+        clear_preview_state(state);
         state
             .preview
             .append(&muted_label("No clipboard entries yet"));
         return;
     }
     if state.entries.borrow().is_empty() {
-        crate::components::clear_box(&state.preview);
-        crate::components::clear_box(&state.details);
+        clear_preview_state(state);
         return;
     }
 
@@ -300,14 +298,12 @@ fn select_clipboard_row(state: &Rc<AppState>, selected_index: Option<usize>) {
 fn select_secret_row(state: &Rc<AppState>, selected_index: Option<usize>) {
     let total = state.secrets_total.get();
     if total == 0 {
-        crate::components::clear_box(&state.preview);
-        crate::components::clear_box(&state.details);
+        clear_preview_state(state);
         state.preview.append(&muted_label("No secrets saved yet"));
         return;
     }
     if state.secrets.borrow().is_empty() {
-        crate::components::clear_box(&state.preview);
-        crate::components::clear_box(&state.details);
+        clear_preview_state(state);
         return;
     }
 

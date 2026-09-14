@@ -22,6 +22,7 @@ pub(crate) struct UiRuntime {
 
 impl UiRuntime {
     pub(crate) fn preload(&self) -> Result<()> {
+        WidgetExt::realize(&self.window);
         sync_topbar_from_state(&self.state);
         update_mode_controls(&self.state);
         refresh_entries(&self.state)
@@ -30,12 +31,22 @@ impl UiRuntime {
     pub(crate) fn show_reset(&self) -> Result<()> {
         use gtk4_layer_shell::{KeyboardMode, LayerShell};
 
+        let mut needs_refresh = false;
         if self.state.reset_on_show.get() {
+            let view_changed = *self.state.view.borrow() != self.state.default_view.get();
+            let query_changed = !self.state.query.borrow().is_empty();
+            let filter_changed = *self.state.filter.borrow() != self.state.default_filter.get();
+            let sort_changed = *self.state.sort.borrow() != self.state.default_sort.get();
+
             *self.state.view.borrow_mut() = self.state.default_view.get();
             *self.state.query.borrow_mut() = String::new();
             *self.state.filter.borrow_mut() = self.state.default_filter.get();
             *self.state.sort.borrow_mut() = self.state.default_sort.get();
-            self.state.search_entry.set_text("");
+            if query_changed {
+                self.state.search_entry.set_text("");
+            }
+
+            needs_refresh = view_changed || query_changed || filter_changed || sort_changed;
         }
 
         sync_topbar_from_state(&self.state);
@@ -47,7 +58,14 @@ impl UiRuntime {
         if self.state.auto_focus_search.get() {
             self.state.search_entry.grab_focus();
         }
-        refresh_entries_after_present(&self.state);
+
+        let is_empty = match *self.state.view.borrow() {
+            AppView::Clipboard => self.state.entries.borrow().is_empty(),
+            AppView::Secrets => self.state.secrets.borrow().is_empty(),
+        };
+        if needs_refresh || is_empty {
+            refresh_entries_after_present(&self.state);
+        }
         Ok(())
     }
 
@@ -175,12 +193,17 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         details: preview_panel.details.clone(),
         footer: footer_bar.footer.clone(),
         ocr_button: footer_bar.ocr_button.clone(),
+        currently_previewed_entry_id: Cell::new(None),
+        currently_previewed_secret_id: Cell::new(None),
     });
     update_mode_controls(&state);
 
     crate::notify::install_change_listener(&state, &window, &paths.socket_path)?;
     let config_monitor = crate::config_reload::install_config_watcher(&state, &window, &paths)?;
     crate::events::connect(&state, &window);
+
+    // Warm the Wayland layer-shell surface and GPU context so first presentation is instant.
+    WidgetExt::realize(&window);
 
     Ok(UiRuntime {
         state,
@@ -222,7 +245,6 @@ pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow
 
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_visible(false);
-    preview::clear_preview_state(state);
     *state.prompt_active.borrow_mut() = false;
 }
 

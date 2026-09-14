@@ -54,6 +54,12 @@ pub(crate) fn build_panel() -> PreviewPanel {
 }
 
 pub(crate) fn render_secret_preview(state: &Rc<AppState>, secret: &SecretEntry) {
+    if state.currently_previewed_secret_id.get() == Some(secret.id) {
+        return;
+    }
+    state.currently_previewed_secret_id.set(Some(secret.id));
+    state.currently_previewed_entry_id.set(None);
+
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     state.ocr_button.set_opacity(0.0);
@@ -145,6 +151,12 @@ pub(crate) fn render_secret_preview(state: &Rc<AppState>, secret: &SecretEntry) 
 }
 
 pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
+    if state.currently_previewed_entry_id.get() == Some(entry.id) {
+        return;
+    }
+    state.currently_previewed_entry_id.set(Some(entry.id));
+    state.currently_previewed_secret_id.set(None);
+
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     let is_image = matches!(&entry.data, EntryData::Image { .. });
@@ -157,7 +169,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     // Summary rows omit text payloads; re-read the selected entry so text and
     // OCR previews show the complete content instead of a stored snippet.
     let full = match &entry.data {
-        EntryData::Text | EntryData::Unknown | EntryData::Image { .. } | EntryData::File { .. } => {
+        EntryData::Text | EntryData::Unknown | EntryData::File { .. } => {
             full_entry_for_preview(state, entry)
         }
         _ => entry.clone(),
@@ -194,6 +206,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
 }
 
 pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
+    crate::state::invalidate_preview_cache(state);
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     state.ocr_button.set_opacity(0.0);
@@ -357,6 +370,10 @@ fn render_ocr_header(state: &Rc<AppState>, ocr: &str) {
 ///
 /// Falls back to the summary row when the entry vanished or the read failed.
 fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> ClipboardEntry {
+    if entry.text_content.is_some() {
+        return entry.clone();
+    }
+
     state
         .db
         .get_entry(entry.id)

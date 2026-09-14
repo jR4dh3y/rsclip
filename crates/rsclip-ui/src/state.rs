@@ -97,6 +97,8 @@ pub(crate) struct AppState {
     pub(crate) details: gtk::Box,
     pub(crate) footer: gtk::Label,
     pub(crate) ocr_button: gtk::Button,
+    pub(crate) currently_previewed_entry_id: Cell<Option<i64>>,
+    pub(crate) currently_previewed_secret_id: Cell<Option<i64>>,
 }
 
 /// Invalidate queued and in-flight list work before changing its context.
@@ -220,3 +222,9 @@ fn row_index_for_absolute(
 
     Some((relative_index + usize::from(window_start > 0)) as i32)
 }
+
+pub(crate) fn invalidate_preview_cache(state: &AppState) {
+    state.currently_previewed_entry_id.set(None);
+    state.currently_previewed_secret_id.set(None);
+}
+

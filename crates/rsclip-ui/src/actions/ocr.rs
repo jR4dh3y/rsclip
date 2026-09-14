@@ -40,6 +40,7 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
     {
         *slot = updated.clone();
     }
+    crate::state::invalidate_preview_cache(state);
     render_preview(state, &updated);
     set_footer(state, "OCR complete");
     Ok(())
