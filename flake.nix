@@ -3,15 +3,14 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
-    crane = {
-      url = "github:ipetkov/crane";
-    };
+    crane.url = "github:ipetkov/crane";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    systems.url = "github:nix-systems/default-linux";
   };
 
   outputs =
@@ -20,17 +19,15 @@
       nixpkgs,
       crane,
       rust-overlay,
+      systems,
       ...
     }:
     let
       inherit (nixpkgs) lib;
+      eachSystem = lib.genAttrs (import systems);
 
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
-
-      perSystem = system:
+      perSystem =
+        system:
         let
           pkgs = import nixpkgs {
             inherit system;
@@ -46,13 +43,18 @@
           };
 
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
-          project = builtins.fromTOML (builtins.readFile ./crates/rsclip-ui/Cargo.toml);
+
+          # Single source of truth for version — workspace has no [workspace.package] version,
+          # so read from rsclip-ui and assert daemon stays in sync.
+          version = (builtins.fromTOML (builtins.readFile ./crates/rsclip-ui/Cargo.toml)).package.version;
 
           cargoFiles = craneLib.fileset.commonCargoSources ./.;
+
           cargoSrc = lib.fileset.toSource {
             root = ./.;
             fileset = cargoFiles;
           };
+
           buildSrc = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -60,6 +62,7 @@
               ./crates/rsclip-ui/resources
             ];
           };
+
           packageSrc = lib.fileset.toSource {
             root = ./.;
             fileset = lib.fileset.unions [
@@ -72,24 +75,28 @@
             ];
           };
 
-          buildInputs = with pkgs; [
-            gtk4
-            gtk4-layer-shell
+          buildInputs = [
+            pkgs.gtk4
+            pkgs.gtk4-layer-shell
           ];
-          nativeBuildInputs = with pkgs; [
-            pkg-config
+
+          nativeBuildInputs = [
+            pkgs.pkg-config
+            pkgs.wrapGAppsHook4
+            pkgs.makeWrapper
           ];
-          runtimeInputs = with pkgs; [
-            bash
-            tesseract
-            wl-clipboard
-            wtype
+
+          runtimeInputs = [
+            pkgs.bash
+            pkgs.tesseract
+            pkgs.wl-clipboard
+            pkgs.wtype
           ];
 
           commonArgs = {
-            inherit buildInputs nativeBuildInputs;
             pname = "rsclip";
-            version = project.package.version;
+            inherit version;
+            inherit buildInputs nativeBuildInputs;
             strictDeps = true;
             cargoExtraArgs = "--locked --workspace";
             CARGO_PROFILE = "release";
@@ -106,14 +113,14 @@
           rsclip = craneLib.buildPackage (
             commonArgs
             // {
-              inherit cargoArtifacts;
+              inherit cargoArtifacts version;
               pname = "rsclip";
-              version = project.package.version;
               src = packageSrc;
 
               cargoBuildExtraArgs = "--bins";
+
+              # tests run as separate checks
               doCheck = false;
-              nativeBuildInputs = nativeBuildInputs ++ [ pkgs.makeWrapper ];
 
               installPhaseCommand = ''
                 install -Dm755 target/release/rsclip "$out/bin/rsclip"
@@ -130,7 +137,7 @@
                 install -Dm644 LICENSE "$out/share/licenses/rsclip/LICENSE"
               '';
 
-              postInstall = ''
+              postFixup = ''
                 runtimePath=${lib.makeBinPath runtimeInputs}
                 wrapProgram "$out/bin/rsclip" --prefix PATH : "$runtimePath"
                 wrapProgram "$out/bin/rsclipd" --prefix PATH : "$runtimePath"
@@ -184,48 +191,55 @@
           apps = {
             default = {
               type = "app";
-              program = "${rsclip}/bin/rsclip";
+              program = lib.getExe rsclip;
               meta.description = "Open the rsclip clipboard history UI";
             };
 
             rsclipd = {
               type = "app";
-              program = "${rsclip}/bin/rsclipd";
+              program = lib.getExe' rsclip "rsclipd";
               meta.description = "Run the rsclip clipboard daemon";
             };
           };
 
           devShells.default = pkgs.mkShell {
-            inherit buildInputs nativeBuildInputs;
-            packages = [
-              rustToolchain
-              pkgs.alejandra
-              pkgs.cargo-nextest
-              pkgs.rust-analyzer
-            ]
-            ++ runtimeInputs;
+            packages =
+              buildInputs
+              ++ runtimeInputs
+              ++ [
+                rustToolchain
+                pkgs.nixfmt
+                pkgs.cargo-nextest
+                pkgs.rust-analyzer
+              ];
 
+            # rust-overlay already provides rust-src, but rust-analyzer needs it explicitly
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
           };
 
-          formatter = pkgs.alejandra;
+          formatter = pkgs.nixfmt;
         };
 
-      allSystems = lib.genAttrs systems perSystem;
+      allSystems = eachSystem perSystem;
     in
     {
-      packages = lib.mapAttrs (_system: outputs: outputs.packages) allSystems;
-      checks = lib.mapAttrs (_system: outputs: outputs.checks) allSystems;
-      apps = lib.mapAttrs (_system: outputs: outputs.apps) allSystems;
-      devShells = lib.mapAttrs (_system: outputs: outputs.devShells) allSystems;
-      formatter = lib.mapAttrs (_system: outputs: outputs.formatter) allSystems;
+      packages = lib.mapAttrs (_: v: v.packages) allSystems;
+      checks = lib.mapAttrs (_: v: v.checks) allSystems;
+      apps = lib.mapAttrs (_: v: v.apps) allSystems;
+      devShells = lib.mapAttrs (_: v: v.devShells) allSystems;
+      formatter = lib.mapAttrs (_: v: v.formatter) allSystems;
 
       overlays.default = final: _prev: {
         rsclip = self.packages.${final.stdenv.hostPlatform.system}.default;
       };
 
       nixosModules.default =
-        { config, lib, pkgs, ... }:
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
         let
           cfg = config.programs.rsclip;
         in
@@ -233,10 +247,8 @@
           options.programs.rsclip = {
             enable = lib.mkEnableOption "rsclip, the Wayland clipboard manager";
 
-            package = lib.mkOption {
-              type = lib.types.package;
-              default = self.packages.${pkgs.system}.default;
-              description = "The rsclip package to install and run.";
+            package = lib.mkPackageOption pkgs "rsclip" {
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
             };
           };
 
@@ -248,9 +260,7 @@
               after = [ "graphical-session.target" ];
               wantedBy = [ "graphical-session.target" ];
               partOf = [ "graphical-session.target" ];
-              unitConfig = {
-                ConditionEnvironment = "WAYLAND_DISPLAY";
-              };
+              unitConfig.ConditionEnvironment = "WAYLAND_DISPLAY";
               serviceConfig = {
                 Type = "simple";
                 ExecStart = "${cfg.package}/bin/rsclipd watch";
