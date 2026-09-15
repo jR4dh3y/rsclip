@@ -203,9 +203,9 @@
           };
 
           devShells.default = pkgs.mkShell {
+            inherit buildInputs nativeBuildInputs;
             packages =
-              buildInputs
-              ++ runtimeInputs
+              runtimeInputs
               ++ [
                 rustToolchain
                 pkgs.nixfmt
