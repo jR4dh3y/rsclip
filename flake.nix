@@ -31,6 +31,7 @@
         let
           pkgs = import nixpkgs {
             inherit system;
+            config = { };
             overlays = [ rust-overlay.overlays.default ];
           };
 
@@ -145,7 +146,7 @@
 
               meta = {
                 description = "Wayland clipboard manager with a GTK4 UI and background daemon";
-                homepage = "https://github.com/CierCier/rsclip-wl";
+                homepage = "https://github.com/jr4dh3y/rsclip";
                 license = lib.licenses.mit;
                 mainProgram = "rsclip";
                 platforms = lib.platforms.linux;
@@ -203,15 +204,13 @@
           };
 
           devShells.default = pkgs.mkShell {
-            inherit buildInputs nativeBuildInputs;
-            packages =
-              runtimeInputs
-              ++ [
-                rustToolchain
-                pkgs.nixfmt
-                pkgs.cargo-nextest
-                pkgs.rust-analyzer
-              ];
+            inputsFrom = [ rsclip ];
+            packages = runtimeInputs ++ [
+              rustToolchain
+              pkgs.nixfmt
+              pkgs.cargo-nextest
+              pkgs.rust-analyzer
+            ];
 
             # rust-overlay already provides rust-src, but rust-analyzer needs it explicitly
             RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
@@ -247,8 +246,11 @@
           options.programs.rsclip = {
             enable = lib.mkEnableOption "rsclip, the Wayland clipboard manager";
 
-            package = lib.mkPackageOption pkgs "rsclip" {
+            package = lib.mkOption {
+              type = lib.types.package;
               default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              defaultText = lib.literalExpression "self.packages.\${pkgs.stdenv.hostPlatform.system}.default";
+              description = "The rsclip package to use.";
             };
           };
 
