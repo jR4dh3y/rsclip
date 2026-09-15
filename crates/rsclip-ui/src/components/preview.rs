@@ -12,12 +12,12 @@ use crate::components::details::{render_details, render_secret_details};
 use crate::components::labels::{muted_label, section_label};
 use crate::state::AppState;
 
-/// UI-side safety net for previews. The daemon bounds new payloads with
-/// `max_text_bytes` (default 1 MiB), but legacy rows can be larger; cap what
-/// the `TextView` layouts so one bloated row cannot freeze the GTK thread.
-pub(crate) const MAX_FULL_PREVIEW_BYTES: usize = 1024 * 1024;
-const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
+/// UI-side safety net for previews. Capped at 64 KiB so large text entries
+/// layout smoothly in `TextView` without blocking the GTK main thread.
+pub(crate) const MAX_FULL_PREVIEW_BYTES: usize = 64 * 1024;
+pub(crate) const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
     "\n\n[Preview truncated — copy the entry for full content]";
+pub(crate) const BINARY_PREVIEW_NOTICE: &str = "[Binary data — copy the entry for full content]";
 
 pub(crate) struct PreviewPanel {
     pub(crate) shell: gtk::Box,
@@ -157,6 +157,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     state.currently_previewed_entry_id.set(Some(entry.id));
     state.currently_previewed_secret_id.set(None);
 
+    rsclip_core::profiler::begin_phase("render_preview");
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     let is_image = matches!(&entry.data, EntryData::Image { .. });
@@ -183,12 +184,15 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         }
         EntryData::File { .. } => render_file_preview(state, &full),
         EntryData::Text | EntryData::Unknown => {
-            render_text_preview(
-                &state.preview,
-                full.text_content
-                    .as_deref()
-                    .or(full.preview_text.as_deref()),
-            );
+            let content = full
+                .text_content
+                .as_deref()
+                .or(full.preview_text.as_deref());
+            if content.is_none() && matches!(full.data, EntryData::Unknown) {
+                render_text_preview(&state.preview, Some(BINARY_PREVIEW_NOTICE));
+            } else {
+                render_text_preview(&state.preview, content);
+            }
         }
     }
 
@@ -203,6 +207,11 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
 
     render_details(&state.details, &full);
+    rsclip_core::profiler::end_phase("render_preview");
+    if rsclip_core::profiler::enabled() {
+        rsclip_core::profiler::print_report();
+        rsclip_core::profiler::reset();
+    }
 }
 
 pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
@@ -214,6 +223,7 @@ pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
 }
 
 fn render_image_preview(container: &gtk::Box, entry: &ClipboardEntry) {
+    rsclip_core::profiler::begin_phase("render_image_preview");
     if let EntryData::Image { file_path, .. } = &entry.data {
         let file = gio::File::for_path(file_path);
         if let Ok(texture) = gdk::Texture::from_file(&file) {
@@ -235,13 +245,16 @@ fn render_image_preview(container: &gtk::Box, entry: &ClipboardEntry) {
     } else {
         container.append(&muted_label("Image file is missing"));
     }
+    rsclip_core::profiler::end_phase("render_image_preview");
 }
 
 fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
+    rsclip_core::profiler::begin_phase("render_file_preview");
     let Some(payload) = entry.text_content.as_deref() else {
         state
             .preview
             .append(&muted_label("File list is unavailable"));
+        rsclip_core::profiler::end_phase("render_file_preview");
         return;
     };
     // Bound parsing, allocation, and `exists()` stats before touching the
@@ -251,6 +264,7 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         parse_uri_list_bounded(payload, URI_LIST_PREVIEW_MAX_FILES, MAX_FULL_PREVIEW_BYTES);
     if bounded.files.is_empty() {
         render_text_preview(&state.preview, Some(payload));
+        rsclip_core::profiler::end_phase("render_file_preview");
         return;
     }
 
@@ -303,6 +317,7 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
 
     render_text_preview(&state.preview, Some(&paths));
+    rsclip_core::profiler::end_phase("render_file_preview");
 }
 
 fn file_count_label(count: usize) -> String {
@@ -374,17 +389,31 @@ fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> Clipb
         return entry.clone();
     }
 
-    state
+    rsclip_core::profiler::begin_phase("query_full_entry");
+    let result = state
         .db
         .get_entry(entry.id)
         .ok()
         .flatten()
-        .unwrap_or_else(|| entry.clone())
+        .unwrap_or_else(|| entry.clone());
+    rsclip_core::profiler::end_phase("query_full_entry");
+    result
+}
+
+fn is_binary_payload(text: &str) -> bool {
+    text.as_bytes().contains(&0)
 }
 
 fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
+    rsclip_core::profiler::begin_phase("render_text_preview");
+    let preview_text = bounded_full_preview(text.unwrap_or(""));
+    let sanitized = if preview_text.contains('\0') {
+        std::borrow::Cow::Owned(preview_text.replace('\0', " "))
+    } else {
+        preview_text
+    };
     let buffer = gtk::TextBuffer::new(None);
-    buffer.set_text(&bounded_full_preview(text.unwrap_or("")));
+    buffer.set_text(&sanitized);
     let view = gtk::TextView::with_buffer(&buffer);
     view.add_css_class("preview-text");
     view.set_editable(false);
@@ -402,14 +431,21 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
         .propagate_natural_height(false)
         .child(&view)
         .build();
+
     container.append(&scroller);
+    rsclip_core::profiler::end_phase("render_text_preview");
 }
 
-/// Cap preview text without splitting a UTF-8 code point.
+/// Cap preview text without splitting a UTF-8 code point, and detect binary payloads.
 ///
-/// New payloads are bounded by the daemon, but legacy rows can exceed it;
-/// keep one bloated row from freezing the GTK thread during layout.
+/// Bounded to 64 KiB so large text entries layout smoothly in `TextView` without
+/// freezing the GTK main thread. Payloads containing interior null bytes are treated
+/// as binary and presented with an explanatory notice instead of crashing GTK FFI.
 fn bounded_full_preview(text: &str) -> std::borrow::Cow<'_, str> {
+    if is_binary_payload(text) {
+        return std::borrow::Cow::Borrowed(BINARY_PREVIEW_NOTICE);
+    }
+
     if text.len() <= MAX_FULL_PREVIEW_BYTES {
         return std::borrow::Cow::Borrowed(text);
     }
@@ -426,7 +462,10 @@ fn bounded_full_preview(text: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FULL_PREVIEW_TRUNCATED_NOTICE, MAX_FULL_PREVIEW_BYTES, bounded_full_preview};
+    use super::{
+        BINARY_PREVIEW_NOTICE, FULL_PREVIEW_TRUNCATED_NOTICE, MAX_FULL_PREVIEW_BYTES,
+        bounded_full_preview,
+    };
 
     #[test]
     fn preview_is_bounded_on_utf8_boundary() {
@@ -442,5 +481,11 @@ mod tests {
     fn small_preview_is_unchanged() {
         let text = "small clipboard entry";
         assert_eq!(bounded_full_preview(text), text);
+    }
+
+    #[test]
+    fn binary_payload_shows_binary_notice() {
+        let binary = "some\0binary\0data";
+        assert_eq!(bounded_full_preview(binary), BINARY_PREVIEW_NOTICE);
     }
 }

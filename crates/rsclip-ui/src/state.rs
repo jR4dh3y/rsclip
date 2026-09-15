@@ -227,4 +227,3 @@ pub(crate) fn invalidate_preview_cache(state: &AppState) {
     state.currently_previewed_entry_id.set(None);
     state.currently_previewed_secret_id.set(None);
 }
-

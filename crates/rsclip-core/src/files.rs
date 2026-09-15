@@ -14,6 +14,7 @@ pub struct FileReference {
 /// of URIs where each entry costs URL parsing, allocation, and a filesystem
 /// `exists()` check. Cap the work and report truncation instead.
 pub const URI_LIST_PREVIEW_MAX_FILES: usize = 500;
+pub const URI_LIST_PREVIEW_MAX_SCANNED_LINES: usize = 1000;
 
 /// File entries parsed for a preview, with whether the input was truncated.
 pub struct BoundedUriList {
@@ -24,15 +25,18 @@ pub struct BoundedUriList {
 /// Parse at most `max_files` file references from at most `max_bytes` of payload.
 ///
 /// The byte bound is applied at a line boundary so truncation never creates a
-/// partial URI, and parsing stops after `max_files` valid entries.
+/// partial URI, and parsing stops after `max_files` valid entries or after
+/// scanning a bounded number of lines to avoid stalling on non-URI data.
 /// `truncated` reports either bound being hit so callers can label partial
 /// results instead of silently showing or copying a subset.
 pub fn parse_uri_list_bounded(payload: &str, max_files: usize, max_bytes: usize) -> BoundedUriList {
     let bounded = truncate_to_line_boundary(payload, max_bytes);
     let mut truncated = bounded.len() < payload.len();
     let mut files = Vec::new();
+    let mut lines_scanned = 0;
     for line in uri_list_lines(bounded) {
-        if files.len() >= max_files {
+        lines_scanned += 1;
+        if files.len() >= max_files || lines_scanned > URI_LIST_PREVIEW_MAX_SCANNED_LINES {
             truncated = true;
             break;
         }
@@ -336,5 +340,14 @@ mod tests {
 
         assert!(bounded.files.is_empty());
         assert!(!bounded.truncated);
+    }
+
+    #[test]
+    fn bounded_parse_caps_scanned_lines_on_non_uri_payload() {
+        let payload = "garbage line\n".repeat(2000);
+        let bounded = parse_uri_list_bounded(&payload, 500, 1024 * 1024);
+
+        assert!(bounded.files.is_empty());
+        assert!(bounded.truncated);
     }
 }

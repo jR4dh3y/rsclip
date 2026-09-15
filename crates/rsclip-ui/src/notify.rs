@@ -9,9 +9,7 @@ use gtk4 as gtk;
 use gtk4::prelude::*;
 use rsclip_core::notify::{CHANGE_EVENT, FAVICON_EVENT};
 
-use crate::actions::refresh::{
-    refresh_entries, refresh_entries_if_changed, rerender_current_list,
-};
+use crate::actions::refresh::{refresh_entries, refresh_entries_if_changed, rerender_current_list};
 use crate::actions::set_footer;
 use crate::state::AppState;
 
