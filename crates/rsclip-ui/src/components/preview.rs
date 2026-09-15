@@ -157,6 +157,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     state.currently_previewed_entry_id.set(Some(entry.id));
     state.currently_previewed_secret_id.set(None);
 
+    rsclip_core::profiler::begin_phase("render_preview");
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     let is_image = matches!(&entry.data, EntryData::Image { .. });
@@ -206,6 +207,11 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
 
     render_details(&state.details, &full);
+    rsclip_core::profiler::end_phase("render_preview");
+    if rsclip_core::profiler::enabled() {
+        rsclip_core::profiler::print_report();
+        rsclip_core::profiler::reset();
+    }
 }
 
 pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
@@ -217,6 +223,7 @@ pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
 }
 
 fn render_image_preview(container: &gtk::Box, entry: &ClipboardEntry) {
+    rsclip_core::profiler::begin_phase("render_image_preview");
     if let EntryData::Image { file_path, .. } = &entry.data {
         let file = gio::File::for_path(file_path);
         if let Ok(texture) = gdk::Texture::from_file(&file) {
@@ -238,13 +245,16 @@ fn render_image_preview(container: &gtk::Box, entry: &ClipboardEntry) {
     } else {
         container.append(&muted_label("Image file is missing"));
     }
+    rsclip_core::profiler::end_phase("render_image_preview");
 }
 
 fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
+    rsclip_core::profiler::begin_phase("render_file_preview");
     let Some(payload) = entry.text_content.as_deref() else {
         state
             .preview
             .append(&muted_label("File list is unavailable"));
+        rsclip_core::profiler::end_phase("render_file_preview");
         return;
     };
     // Bound parsing, allocation, and `exists()` stats before touching the
@@ -254,6 +264,7 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         parse_uri_list_bounded(payload, URI_LIST_PREVIEW_MAX_FILES, MAX_FULL_PREVIEW_BYTES);
     if bounded.files.is_empty() {
         render_text_preview(&state.preview, Some(payload));
+        rsclip_core::profiler::end_phase("render_file_preview");
         return;
     }
 
@@ -306,6 +317,7 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
 
     render_text_preview(&state.preview, Some(&paths));
+    rsclip_core::profiler::end_phase("render_file_preview");
 }
 
 fn file_count_label(count: usize) -> String {
@@ -377,12 +389,15 @@ fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> Clipb
         return entry.clone();
     }
 
-    state
+    rsclip_core::profiler::begin_phase("query_full_entry");
+    let result = state
         .db
         .get_entry(entry.id)
         .ok()
         .flatten()
-        .unwrap_or_else(|| entry.clone())
+        .unwrap_or_else(|| entry.clone());
+    rsclip_core::profiler::end_phase("query_full_entry");
+    result
 }
 
 fn is_binary_payload(text: &str) -> bool {
@@ -390,6 +405,7 @@ fn is_binary_payload(text: &str) -> bool {
 }
 
 fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
+    rsclip_core::profiler::begin_phase("render_text_preview");
     let preview_text = bounded_full_preview(text.unwrap_or(""));
     let sanitized = if preview_text.contains('\0') {
         std::borrow::Cow::Owned(preview_text.replace('\0', " "))
@@ -415,7 +431,9 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
         .propagate_natural_height(false)
         .child(&view)
         .build();
+
     container.append(&scroller);
+    rsclip_core::profiler::end_phase("render_text_preview");
 }
 
 /// Cap preview text without splitting a UTF-8 code point, and detect binary payloads.

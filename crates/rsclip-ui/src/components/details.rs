@@ -8,6 +8,7 @@ use crate::components::labels::muted_label;
 use crate::components::preview::MAX_FULL_PREVIEW_BYTES;
 
 pub(crate) fn render_details(container: &gtk::Box, entry: &ClipboardEntry) {
+    rsclip_core::profiler::begin_phase("render_details");
     let mut rows = vec![("Type", entry.kind.to_string())];
     if let EntryData::File { .. } = &entry.data {
         // Same pre-parse bounds as the file preview: counts cover the shown
@@ -44,6 +45,7 @@ pub(crate) fn render_details(container: &gtk::Box, entry: &ClipboardEntry) {
         ("First copied", format_full_time(entry.copied_at)),
     ]);
     render_rows(container, &rows);
+    rsclip_core::profiler::end_phase("render_details");
 }
 
 pub(crate) fn render_secret_details(container: &gtk::Box, secret: &SecretEntry) {
