@@ -9,12 +9,15 @@ and is activated by later `rsclip` invocations.
 ## Current scope
 
 - SQLite-backed text, image, and file-reference history.
+- Built-in secrets vault with masked values, search, copying, and renaming.
 - `rsclipd store --mime ...` for manual or watcher-driven ingestion.
 - `rsclipd watch` to spawn `wl-paste --watch` text, PNG, and URI-list watchers.
+- `rsclipd pin`, `delete`, `paste`, `ocr`, and `favicons` subcommands.
 - Text, link, and color classification.
 - Image payload storage under XDG data directories.
-- Resident GTK4 history window with search, filters, preview, copy, and auto-paste.
-- OCR command plumbing through `rsclipd ocr`.
+- Resident GTK4 history overlay with search, filters, preview, copy, auto-paste, and secrets.
+- OCR command plumbing through `rsclipd ocr` and in-app OCR button.
+- Performance profiling support via `RSCLIP_PROFILE`.
 
 ## Install
 
@@ -59,32 +62,61 @@ wl-copy wl-paste wtype tesseract
 
 ## Try it
 
+### Daemon commands (`rsclipd`)
+
 Manual storage:
 
 ```bash
-printf 'hello from rsclip' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/plain
-printf 'file:///tmp/a.txt\r\n' | cargo run -p rsclip-daemon --bin rsclipd -- store --mime text/uri-list
-cargo run -p rsclip-daemon --bin rsclipd -- list
-cargo run -p rsclip-daemon --bin rsclipd -- list --filter files
+printf 'hello from rsclip' | rsclipd store --mime text/plain
+printf 'file:///tmp/a.txt\r\n' | rsclipd store --mime text/uri-list
 ```
 
 File entries store URI references, not file contents. The original files or directories must still
 exist when the entry is restored and pasted.
 
-Run the watcher:
+Inspect and filter history:
 
 ```bash
-cargo run -p rsclip-daemon --bin rsclipd -- watch
+rsclipd list
+rsclipd list --filter images
+rsclipd list --sort most-used
+rsclipd list --query search-term --limit 20 --json
 ```
 
-Open the UI:
+Pin, delete, and restore:
 
 ```bash
-cargo run -p rsclip-ui --bin rsclip
+rsclipd pin 1               # pin entry 1 (pinned entries resist cleanup and sort first)
+rsclipd pin 1 --off         # unpin entry 1
+rsclipd delete 1            # soft-delete entry 1
+rsclipd paste 1             # copy entry 1 to clipboard and trigger paste via wtype
+rsclipd paste 1 --copy-only # copy entry 1 to clipboard without triggering paste
+rsclipd paste 1 --delay-ms 200 # customize keypress delay before paste
 ```
 
-The first `rsclip` launch starts the UI process. Later invocations activate the existing
-process instead of cold-starting another overlay:
+OCR on image entries:
+
+```bash
+rsclipd ocr 2               # run Tesseract OCR on image entry 2
+rsclipd ocr 2 --lang eng    # specify language for OCR
+```
+
+Favicon cache:
+
+```bash
+rsclipd favicons clear      # clear cached icons and failed-domain records
+rsclipd favicons refresh    # clear and re-queue favicons for all stored link domains
+```
+
+Run the background clipboard watcher:
+
+```bash
+rsclipd watch
+```
+
+### Resident UI commands (`rsclip`)
+
+Start or control the resident overlay UI:
 
 ```bash
 rsclip              # show the resident UI
@@ -92,8 +124,15 @@ rsclip show         # show the resident UI
 rsclip toggle       # hide if visible, show if hidden
 rsclip preload      # start and warm the resident UI without showing it
 rsclip quit-ui      # stop the resident UI process
-rsclip list         # print history without starting GTK
+rsclip list         # print history from SQLite without starting GTK
 ```
+
+Options for `rsclip list` and `rsclipd list`:
+- `--query <q>`: Filter by search query
+- `--filter <filter>`: `all`, `text`, `images`, `files`, `links`, `colors`, `pinned`
+- `--sort <sort>`: `default`, `recent` (or `newest`), `oldest`, `type`, `most-used`
+- `--limit <n>`: Maximum entries to print (default 100)
+- `--json`: Output full JSON array of entries
 
 On boot, run the headless daemon and optionally preload the resident GTK UI:
 
@@ -109,6 +148,36 @@ The UI and daemon are separate processes; the daemon stores history in SQLite an
 UI over the existing Unix datagram socket.
 
 Install the service and desktop file by adapting the files under `packaging/`.
+
+## Keyboard shortcuts
+
+The resident GTK overlay supports keyboard navigation and shortcuts:
+
+| Key | Action |
+| --- | --- |
+| `Tab` | Switch between Clipboard and Secrets view |
+| `Enter` | Paste entry (Clipboard) / Copy secret (Secrets) and close overlay |
+| `Ctrl+Enter` | Copy entry to clipboard without auto-pasting and close overlay |
+| `Ctrl+C` | Copy selected entry or secret to clipboard |
+| `Ctrl+P` | Toggle pin on selected clipboard entry |
+| `Ctrl+D` | Delete selected entry or secret (preserves current list position) |
+| `Ctrl+S` | Save entry as secret (Clipboard) / Copy secret (Secrets) |
+| `Ctrl+E` | Rename selected secret (Secrets view) |
+| `Ctrl+R` | Refresh entries list |
+| `Ctrl+I` | Filter to images |
+| `Ctrl+L` | Filter to links |
+| `Up` / `Down` | Navigate entries |
+| `Esc` | Close overlay |
+
+## Secrets vault
+
+rsclip includes a built-in secrets vault to safeguard credentials and tokens:
+- Press `Ctrl+S` on any text, image OCR, or link entry to move it into the Secrets vault under a custom alias. Moving an entry into secrets removes its raw content from clipboard history.
+- Switch to the Secrets tab using `Tab` or by clicking the **Secrets** mode button in the top bar.
+- Secret values are masked in the preview panel (`********tail`).
+- Press `Enter` or `Ctrl+C` on a secret to copy its raw value to the clipboard.
+- Press `Ctrl+E` to rename a secret's alias.
+- Press `Ctrl+D` to delete a secret. Deleting a secret that was saved from clipboard automatically restores the original clipboard entry.
 
 ## Configuration
 
@@ -153,15 +222,31 @@ The resident UI also supports geometry and behavior settings:
 
 ```toml
 [ui]
+theme = "nonchalant-dark"
 window_width = 920
 window_height = 620
 background_opacity = 0.70
+resizable = false
 preview_default = true
 sidebar_width = 320
+show_footer_hints = true
+reset_on_show = true
+auto_focus_search = true
 start_view = "clipboard"
 default_filter = "all"
 default_sort = "default"
+search_placeholder = "Search clipboard..."
+secrets_search_placeholder = "Search secrets by name..."
 ```
+
+UI configuration details:
+- `start_view`: Initial tab when opening the overlay (`"clipboard"` or `"secrets"`).
+- `default_filter`: Filter applied on launch/reset (`all`, `text`, `images`, `files`, `links`, `colors`, `pinned`).
+- `default_sort`: History ordering (`default` [pinned first, then newest], `recent`/`newest`, `oldest`, `type`, `most-used`).
+- `reset_on_show`: Reset search query, view, and filters whenever the overlay is shown.
+- `auto_focus_search`: Automatically focus the search bar upon opening.
+- `show_footer_hints`: Display keyboard shortcut hints in the bottom bar.
+- `background_opacity`: Backdrop opacity (0.0 to 1.0) applied over `shell_bg`.
 
 The resident UI watches `config.toml` and reloads UI settings automatically.
 
@@ -182,6 +267,15 @@ accent_text = "#000000"
 
 Color changes are hot-reloaded by the resident UI.
 
+## Performance profiling
+
+rsclip includes built-in hierarchical phase and memory profiling. Set `RSCLIP_PROFILE=1`
+(or `RSCLIP_PROFILE=verbose`) to view phase elapsed times and memory deltas in stderr:
+
+```bash
+RSCLIP_PROFILE=1 rsclip
+```
+
 ## Link favicons
 
 rsclip can optionally fetch real favicons for copied links. Network activity is disabled
@@ -197,10 +291,11 @@ The UI never performs network requests. Icons are cached by domain, not by full 
 and are fetched once with no automatic refresh. Failed domains are not retried
 automatically. Missing icons use generated domain initials.
 
-Clear cached icons and failed-domain records with:
+Manage cached icons:
 
 ```bash
-rsclipd favicons clear
+rsclipd favicons clear      # clear cached icons and failed-domain records
+rsclipd favicons refresh    # re-queue favicon fetches for all link domains in history
 ```
 
 ## Release notes
@@ -213,6 +308,6 @@ rsclipd favicons clear
 
 ## Release and AUR
 
-Build the release archive locally with `./scripts/build-release-archive.sh 0.1.16`.
-Pushing a matching `v0.1.16` tag runs the release workflow, publishes the archive,
+Build the release archive locally with `./scripts/build-release-archive.sh 0.1.17`.
+Pushing a matching `v0.1.17` tag runs the release workflow, publishes the archive,
 and updates the `rsclip-bin` AUR package.

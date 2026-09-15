@@ -1,5 +1,6 @@
 use chrono::{DateTime, Local, Utc};
 
+/// Formats a byte size with one decimal place for KB and MB (e.g. "2.0 KB", "1.5 MB").
 pub fn human_bytes(bytes: i64) -> String {
     if bytes >= 1_048_576 {
         format!("{:.1} MB", bytes as f64 / 1_048_576.0)
@@ -10,6 +11,7 @@ pub fn human_bytes(bytes: i64) -> String {
     }
 }
 
+/// Formats a byte size for UI display with rounded KB and one decimal MB (e.g. "2 KB", "1.5 MB").
 pub fn human_size(bytes: i64) -> String {
     if bytes >= 1_048_576 {
         format!("{:.1} MB", bytes as f64 / 1_048_576.0)
@@ -20,6 +22,7 @@ pub fn human_size(bytes: i64) -> String {
     }
 }
 
+/// Formats a Unix timestamp into a human-readable local date and time string.
 pub fn format_full_time(timestamp: i64) -> String {
     DateTime::from_timestamp(timestamp, 0)
         .map(|dt| {
@@ -30,6 +33,7 @@ pub fn format_full_time(timestamp: i64) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Formats a Unix timestamp into a short relative string (e.g. "now", "5 min", "2 hr", "3 day").
 pub fn relative_time(timestamp: i64) -> String {
     let seconds = (Utc::now().timestamp() - timestamp).max(0);
     if seconds < 60 {
@@ -46,6 +50,7 @@ pub fn relative_time(timestamp: i64) -> String {
     }
 }
 
+/// Masks a secret string, revealing only the final 4 characters (e.g. "********tail").
 pub fn masked_secret(value: &str) -> String {
     let visible_tail = value.chars().rev().take(4).collect::<Vec<_>>();
     let tail = visible_tail.into_iter().rev().collect::<String>();

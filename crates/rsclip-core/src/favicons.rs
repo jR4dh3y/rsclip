@@ -11,37 +11,44 @@ struct QueueJob<'a> {
     domain: &'a str,
 }
 
+/// Computes a stable hex BLAKE3 hash of the domain name for cache filenames.
 pub fn domain_cache_key(domain: &str) -> String {
     blake3::hash(domain.as_bytes()).to_hex().to_string()
 }
 
+/// Returns the filesystem path for a cached PNG favicon.
 pub fn icon_path(paths: &RsclipPaths, domain: &str) -> PathBuf {
     paths
         .favicon_icon_dir
         .join(format!("{}.png", domain_cache_key(domain)))
 }
 
+/// Returns the filesystem path for a recorded domain miss (failed fetch).
 pub fn miss_path(paths: &RsclipPaths, domain: &str) -> PathBuf {
     paths
         .favicon_miss_dir
         .join(format!("{}.miss", domain_cache_key(domain)))
 }
 
+/// Returns the filesystem path for a queued domain fetch job.
 pub fn queue_path(paths: &RsclipPaths, domain: &str) -> PathBuf {
     paths
         .favicon_queue_dir
         .join(format!("{}.json", domain_cache_key(domain)))
 }
 
+/// Returns the cached icon path if it currently exists on disk.
 pub fn cached_icon_path(paths: &RsclipPaths, domain: &str) -> Option<PathBuf> {
     let path = icon_path(paths, domain);
     path.exists().then_some(path)
 }
 
+/// Returns true if this domain has neither an existing icon nor a recorded miss.
 pub fn should_enqueue(paths: &RsclipPaths, domain: &str) -> bool {
     !icon_path(paths, domain).exists() && !miss_path(paths, domain).exists()
 }
 
+/// Adds a domain to the background favicon download queue if not already fetched or missed.
 pub fn enqueue_domain(paths: &RsclipPaths, domain: &str) -> Result<()> {
     if !should_enqueue(paths, domain) {
         return Ok(());

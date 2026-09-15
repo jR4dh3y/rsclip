@@ -4,10 +4,12 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
+/// Runs Tesseract on an image file using default command and no timeout.
 pub fn run_tesseract(image_path: &str, language: &str) -> Result<String> {
     run_tesseract_with_options(image_path, language, "tesseract", 0)
 }
 
+/// Runs OCR on an image file with custom command binary, language, and timeout limit.
 pub fn run_tesseract_with_options(
     image_path: &str,
     language: &str,

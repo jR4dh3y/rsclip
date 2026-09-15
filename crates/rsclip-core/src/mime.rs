@@ -1,5 +1,6 @@
 use crate::models::EntryKind;
 
+/// Map a MIME type string to the coarse clipboard entry classification `EntryKind`.
 pub fn kind_from_mime(mime: &str) -> EntryKind {
     if mime.starts_with("image/") {
         EntryKind::Image
@@ -12,6 +13,7 @@ pub fn kind_from_mime(mime: &str) -> EntryKind {
     }
 }
 
+/// Map an image MIME type to its standard file extension, or `"bin"` if unrecognized.
 pub fn extension_for_mime(mime: &str) -> &'static str {
     match mime {
         "image/jpeg" => "jpg",

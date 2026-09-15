@@ -1,10 +1,15 @@
+/// Parsed representation of a color value.
 #[derive(Clone, Debug)]
 pub struct ColorInfo {
+    /// Canonical lowercase hexadecimal format (e.g. `#ff00aa`).
     pub normalized_hex: String,
+    /// Detected format or named color token (e.g. `"hex"`, `"rgb"`, or `"black"`).
     pub original_format: String,
+    /// Decomposed 8-bit RGB channels.
     pub rgb: (u8, u8, u8),
 }
 
+/// Attempt to parse a string as a hex code, CSS `rgb(...)`/`rgba(...)`, or named color.
 pub fn parse_color(text: &str) -> Option<ColorInfo> {
     parse_hex(text)
         .or_else(|| parse_rgb(text))
@@ -97,6 +102,7 @@ fn parse_named(text: &str) -> Option<ColorInfo> {
     })
 }
 
+/// Format RGB channels into standard `rgb(r, g, b)` CSS notation.
 pub fn rgb_text((red, green, blue): (u8, u8, u8)) -> String {
     format!("rgb({red}, {green}, {blue})")
 }

@@ -12,5 +12,5 @@ pub fn run(args: &[String]) -> Result<()> {
         list_args.sort,
         list_args.limit,
     )?;
-    crate::output::print_entries(&entries, list_args.json)
+    rsclip_core::cli::print_entries(&entries, list_args.json)
 }

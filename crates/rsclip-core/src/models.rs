@@ -323,6 +323,18 @@ mod tests {
         assert_eq!(EntryFilter::parse("files"), EntryFilter::Files);
         assert_eq!(EntryFilter::parse("file"), EntryFilter::Files);
     }
+
+    #[test]
+    fn parses_sort_modes() {
+        use super::SortMode;
+        assert_eq!(SortMode::parse("default"), SortMode::Default);
+        assert_eq!(SortMode::parse("recent"), SortMode::Recent);
+        assert_eq!(SortMode::parse("newest"), SortMode::Recent);
+        assert_eq!(SortMode::parse("oldest"), SortMode::Oldest);
+        assert_eq!(SortMode::parse("type"), SortMode::Type);
+        assert_eq!(SortMode::parse("most-used"), SortMode::MostUsed);
+        assert_eq!(SortMode::parse("unknown"), SortMode::Default);
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

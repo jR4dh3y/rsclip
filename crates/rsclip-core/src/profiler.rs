@@ -323,38 +323,47 @@ fn with_profiler<R>(f: impl FnOnce(&mut Profiler) -> R) -> R {
     f(profiler)
 }
 
+/// Returns true if verbose profiling output is requested.
 pub fn verbose() -> bool {
     with_profiler(|p| p.verbose)
 }
 
+/// Returns true if profiling is enabled either explicitly or via RSCLIP_PROFILE.
 pub fn enabled() -> bool {
     with_profiler(|p| p.enabled)
 }
 
+/// Starts the global profiler session.
 pub fn begin() {
     with_profiler(|p| p.begin());
 }
 
+/// Begins a named profiling phase.
 pub fn begin_phase(name: &str) {
     with_profiler(|p| p.begin_phase(name));
 }
 
+/// Ends a named profiling phase and records its elapsed time and memory delta.
 pub fn end_phase(name: &str) {
     with_profiler(|p| p.end_phase(name));
 }
 
+/// Records a named phase as skipped in the profile report.
 pub fn skip_phase(name: &str) {
     with_profiler(|p| p.skip_phase(name));
 }
 
+/// Formats and prints the hierarchical profile report to stderr.
 pub fn print_report() {
     with_profiler(|p| p.print_report());
 }
 
+/// Resets the global profiler, clearing all recorded phases.
 pub fn reset() {
     with_profiler(|p| p.reset());
 }
 
+/// Reads the current process VmRSS in kilobytes from `/proc/self/status`.
 pub fn read_rss_kb() -> Option<u64> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     for line in status.lines() {
@@ -365,6 +374,7 @@ pub fn read_rss_kb() -> Option<u64> {
     None
 }
 
+/// Formats a memory size in kilobytes to human-readable KB, MB, or GB.
 pub fn format_bytes(kb: u64) -> String {
     if kb < 1024 {
         format!("{kb} KB")

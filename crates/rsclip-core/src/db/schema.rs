@@ -81,24 +81,34 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_secrets_alias ON secrets(alias);
             "#,
         )?;
-        self.ensure_column("entries", "file_path", "TEXT")?;
-        self.ensure_column("entries", "thumb_path", "TEXT")?;
-        self.ensure_column("entries", "source_app", "TEXT")?;
-        self.ensure_column("entries", "link_url", "TEXT")?;
-        self.ensure_column("entries", "link_domain", "TEXT")?;
-        self.ensure_column("entries", "link_icon", "TEXT")?;
-        self.ensure_column("entries", "color_value", "TEXT")?;
-        self.ensure_column("entries", "color_format", "TEXT")?;
-        self.ensure_column("entries", "pinned", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("entries", "copied_at", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("entries", "updated_at", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("entries", "last_used_at", "INTEGER")?;
-        self.ensure_column("entries", "use_count", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("entries", "size_bytes", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("entries", "deleted", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("secrets", "last_used_at", "INTEGER")?;
-        self.ensure_column("secrets", "use_count", "INTEGER NOT NULL DEFAULT 0")?;
-        self.ensure_column("secrets", "deleted", "INTEGER NOT NULL DEFAULT 0")?;
+        self.ensure_columns(
+            "entries",
+            &[
+                ("file_path", "TEXT"),
+                ("thumb_path", "TEXT"),
+                ("source_app", "TEXT"),
+                ("link_url", "TEXT"),
+                ("link_domain", "TEXT"),
+                ("link_icon", "TEXT"),
+                ("color_value", "TEXT"),
+                ("color_format", "TEXT"),
+                ("pinned", "INTEGER NOT NULL DEFAULT 0"),
+                ("copied_at", "INTEGER NOT NULL DEFAULT 0"),
+                ("updated_at", "INTEGER NOT NULL DEFAULT 0"),
+                ("last_used_at", "INTEGER"),
+                ("use_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("size_bytes", "INTEGER NOT NULL DEFAULT 0"),
+                ("deleted", "INTEGER NOT NULL DEFAULT 0"),
+            ],
+        )?;
+        self.ensure_columns(
+            "secrets",
+            &[
+                ("last_used_at", "INTEGER"),
+                ("use_count", "INTEGER NOT NULL DEFAULT 0"),
+                ("deleted", "INTEGER NOT NULL DEFAULT 0"),
+            ],
+        )?;
         self.conn.execute_batch(
             r#"
             CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_hash ON entries(content_hash);
@@ -124,18 +134,18 @@ impl Database {
         Ok(())
     }
 
-    fn ensure_column(&self, table: &str, column: &str, definition: &str) -> Result<()> {
+    fn ensure_columns(&self, table: &str, columns: &[(&str, &str)]) -> Result<()> {
         let mut stmt = self.conn.prepare(&format!("PRAGMA table_info({table})"))?;
-        let exists = stmt
+        let existing: std::collections::HashSet<String> = stmt
             .query_map([], |row| row.get::<_, String>("name"))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
-            .iter()
-            .any(|name| name == column);
-        if !exists {
-            self.conn.execute(
-                &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
-                params![],
-            )?;
+            .collect::<rusqlite::Result<_>>()?;
+        for (column, definition) in columns {
+            if !existing.contains(*column) {
+                self.conn.execute(
+                    &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+                    params![],
+                )?;
+            }
         }
         Ok(())
     }

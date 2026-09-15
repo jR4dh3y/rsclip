@@ -7,6 +7,10 @@ use crate::links::detect_single_url;
 use crate::mime::kind_from_mime;
 use crate::models::{EntryKind, NewEntry, NewEntryData};
 
+/// Inspect a clipboard payload and MIME type to produce a structured `NewEntry`.
+///
+/// Dispatches specialized handlers for `text/uri-list`, GNOME copied files, text (links/colors/plain),
+/// images, and arbitrary binary payloads.
 pub fn classify_payload(mime_type: &str, content_hash: String, payload: &[u8]) -> Result<NewEntry> {
     let size_bytes = i64::try_from(payload.len()).unwrap_or(i64::MAX);
     if mime_type == "text/uri-list" {
@@ -89,6 +93,7 @@ fn strip_gnome_copy_action(text: &str) -> &str {
     }
 }
 
+/// Classify a text payload into colors, links, or plain text entries.
 pub fn classify_text(
     mime_type: &str,
     content_hash: String,

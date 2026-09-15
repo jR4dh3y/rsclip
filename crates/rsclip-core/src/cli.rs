@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 
 use crate::models::{ClipboardEntry, EntryFilter, SortMode};
 
+/// Parsed arguments for listing entries via CLI.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ListEntriesArgs<'a> {
     pub query: &'a str,
@@ -13,6 +14,7 @@ pub struct ListEntriesArgs<'a> {
     pub json: bool,
 }
 
+/// Parse command-line flags and parameters for `list` commands.
 pub fn parse_list_entries_args(args: &[String]) -> ListEntriesArgs<'_> {
     ListEntriesArgs {
         query: option_value(args, "--query").unwrap_or(""),
@@ -25,16 +27,19 @@ pub fn parse_list_entries_args(args: &[String]) -> ListEntriesArgs<'_> {
     }
 }
 
+/// Extract the value following a specific flag (e.g. `--key value`).
 pub fn option_value<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|window| window[0] == name)
         .map(|window| window[1].as_str())
 }
 
+/// Test whether a flag is present in the arguments list.
 pub fn flag(args: &[String], name: &str) -> bool {
     args.iter().any(|arg| arg == name)
 }
 
+/// Parse a positional 64-bit integer argument (skipping flag arguments).
 pub fn positional_i64(args: &[String], index: usize, label: &str) -> Result<i64> {
     args.iter()
         .filter(|arg| !arg.starts_with('-'))
@@ -44,12 +49,14 @@ pub fn positional_i64(args: &[String], index: usize, label: &str) -> Result<i64>
         .with_context(|| format!("invalid {label}"))
 }
 
+/// Print formatted entries to stdout in either human-readable tabular or JSON format.
 pub fn print_entries(entries: &[ClipboardEntry], json: bool) -> Result<()> {
     let stdout = io::stdout();
     let mut writer = stdout.lock();
     write_entries(&mut writer, entries, json)
 }
 
+/// Write formatted entries to `writer` in either human-readable tabular or JSON format.
 pub fn write_entries(
     writer: &mut impl Write,
     entries: &[ClipboardEntry],

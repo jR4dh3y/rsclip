@@ -8,10 +8,12 @@ use crate::secrets::normalize_secret_alias;
 use super::{Database, rows::secret_from_row};
 
 impl Database {
+    /// Lists active secrets matching the search query up to `limit`.
     pub fn list_secrets(&self, query: &str, limit: usize) -> Result<Vec<SecretEntry>> {
         self.list_secrets_page(query, limit, 0)
     }
 
+    /// Lists a paged slice of active secrets matching the search query.
     pub fn list_secrets_page(
         &self,
         query: &str,
@@ -52,6 +54,7 @@ impl Database {
         Ok(rows)
     }
 
+    /// Returns the count of active secrets matching the query.
     pub fn count_secrets(&self, query: &str) -> Result<usize> {
         let has_query = !query.trim().is_empty();
         let mut sql = String::from("SELECT COUNT(*) FROM secrets WHERE deleted = 0");
@@ -69,6 +72,7 @@ impl Database {
         Ok(count.max(0) as usize)
     }
 
+    /// Stores a secret, optionally associating it with an existing clipboard entry.
     pub fn save_secret(
         &self,
         source_entry_id: Option<i64>,
@@ -111,6 +115,7 @@ impl Database {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// Updates the alias of an existing secret.
     pub fn rename_secret(&self, id: i64, alias: &str) -> Result<()> {
         let alias = normalize_secret_alias(alias);
         self.conn.execute(
@@ -120,6 +125,7 @@ impl Database {
         Ok(())
     }
 
+    /// Soft-deletes a secret and restores its original clipboard entry if linked.
     pub fn delete_secret(&self, id: i64) -> Result<()> {
         let source_entry_id = self
             .conn
@@ -146,6 +152,7 @@ impl Database {
         Ok(())
     }
 
+    /// Updates last used timestamp and increments use count for a secret.
     pub fn touch_secret_used(&self, id: i64) -> Result<()> {
         let now = Utc::now().timestamp();
         self.conn.execute(

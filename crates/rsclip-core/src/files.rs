@@ -2,9 +2,12 @@ use std::path::{Path, PathBuf};
 
 use url::Url;
 
+/// Reference to a local file decoded from a clipboard URI list.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileReference {
+    /// File URI string (e.g. `file:///home/user/document.pdf`).
     pub uri: String,
+    /// Decoded filesystem path.
     pub path: PathBuf,
 }
 
@@ -62,14 +65,17 @@ fn truncate_to_line_boundary(payload: &str, max_bytes: usize) -> &str {
     }
 }
 
+/// Parse all valid `file://` URIs from a `text/uri-list` payload.
 pub fn parse_uri_list(payload: &str) -> Vec<FileReference> {
     uri_list_lines(payload).filter_map(parse_file_uri).collect()
 }
 
+/// Normalize a `text/uri-list` payload to standard CRLF-terminated file URIs.
 pub fn normalize_uri_list(payload: &str) -> String {
     normalize_file_references(parse_uri_list(payload))
 }
 
+/// Generate a human-readable title for a file list (e.g. `"file.txt + 2 more"`).
 pub fn uri_list_title(payload: &str) -> String {
     let files = parse_uri_list(payload);
     match files.as_slice() {
@@ -79,6 +85,7 @@ pub fn uri_list_title(payload: &str) -> String {
     }
 }
 
+/// Render a multiline preview listing file paths from a URI list.
 pub fn uri_list_preview(payload: &str) -> String {
     parse_uri_list(payload)
         .iter()
@@ -87,6 +94,7 @@ pub fn uri_list_preview(payload: &str) -> String {
         .join("\n")
 }
 
+/// Count the number of files referenced in the URI list that do not exist on disk.
 pub fn uri_list_missing_count(payload: &str) -> usize {
     parse_uri_list(payload)
         .iter()
@@ -94,6 +102,7 @@ pub fn uri_list_missing_count(payload: &str) -> usize {
         .count()
 }
 
+/// Convert arbitrary absolute paths or `file://` URIs into a normalized CRLF URI list.
 pub fn normalize_path_or_uri_list(payload: &str) -> Option<String> {
     let mut files = Vec::new();
 

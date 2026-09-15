@@ -285,6 +285,7 @@ fn default_secrets_search_placeholder() -> String {
 }
 
 impl RsclipPaths {
+    /// Discover standard XDG directories and file paths for rsclip.
     pub fn discover() -> Result<Self> {
         let project = ProjectDirs::from("", "", "rsclip")
             .context("could not resolve XDG directories for rsclip")?;
@@ -323,6 +324,7 @@ impl RsclipPaths {
         })
     }
 
+    /// Ensure that all required parent directories for config, state, and data exist.
     pub fn ensure(&self) -> Result<()> {
         for dir in [
             &self.config_dir,
@@ -341,12 +343,14 @@ impl RsclipPaths {
         Ok(())
     }
 
+    /// Path to the configuration file (`config.toml`).
     pub fn config_path(&self) -> PathBuf {
         self.config_dir.join("config.toml")
     }
 }
 
 impl AppConfig {
+    /// Load configuration from `config.toml`, returning default values if the file does not exist.
     pub fn load(paths: &RsclipPaths) -> Result<Self> {
         let path = paths.config_path();
         let contents = match fs::read_to_string(&path) {

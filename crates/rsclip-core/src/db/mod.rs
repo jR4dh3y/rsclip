@@ -7,11 +7,13 @@ mod secrets;
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+/// SQLite database connection handle for rsclip history, secrets, and OCR results.
 pub struct Database {
     conn: Connection,
 }
 
 impl Database {
+    /// Open the SQLite database at `path`, enabling WAL mode, foreign keys, and running migrations.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self> {
         if let Some(parent) = path.as_ref().parent() {
             std::fs::create_dir_all(parent)

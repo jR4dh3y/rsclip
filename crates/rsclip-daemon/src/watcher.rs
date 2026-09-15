@@ -155,15 +155,25 @@ impl Drop for Watcher {
 }
 
 fn require_command(command: &str) -> Result<()> {
-    let status = Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {command} >/dev/null"))
-        .status()
-        .with_context(|| format!("checking for {command}"))?;
-    if !status.success() {
-        bail!("{command} is required but was not found in PATH");
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Some(paths) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&paths) {
+            let candidate = dir.join(command);
+            if candidate.is_file() {
+                #[cfg(unix)]
+                if let Ok(metadata) = candidate.metadata() {
+                    if metadata.permissions().mode() & 0o111 != 0 {
+                        return Ok(());
+                    }
+                }
+                #[cfg(not(unix))]
+                return Ok(());
+            }
+        }
     }
-    Ok(())
+    bail!("{command} is required but was not found in PATH");
 }
 
 fn require_wayland_display() -> Result<()> {

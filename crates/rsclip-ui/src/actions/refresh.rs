@@ -23,16 +23,26 @@ pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     queue_window(state, generation, 0, 0, false)
 }
 
-pub(crate) fn refresh_entries_if_changed(state: &Rc<AppState>) -> Result<()> {
+pub(crate) fn refresh_entries_preserving_selection(state: &Rc<AppState>) -> Result<()> {
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
+    refresh_entries_at_index(state, selected_index)
+}
+
+pub(crate) fn refresh_entries_at_index(state: &Rc<AppState>, target_index: usize) -> Result<()> {
     let generation = crate::state::advance_list_generation(state);
     queue_window(
         state,
         generation,
-        selected_index.saturating_sub(WINDOW_PADDING_ROWS),
-        selected_index,
+        target_index.saturating_sub(WINDOW_PADDING_ROWS),
+        target_index,
         true,
     )
+}
+
+pub(crate) use refresh_entries_preserving_selection as refresh_entries_if_changed;
+
+pub(crate) fn current_selected_index(state: &Rc<AppState>) -> usize {
+    selected_index(state).unwrap_or_else(|| visible_first_index(state))
 }
 
 pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
@@ -553,5 +563,16 @@ mod tests {
             clamp_window_index(usize::MAX, 10, usize::MAX, Some(usize::MAX)),
             Some(usize::MAX.saturating_sub(1))
         );
+    }
+
+    #[test]
+    fn window_index_clamps_after_deleting_last_entry() {
+        // Suppose total was 10, user was at index 9. One entry deleted -> total is 9.
+        // Rendered window starts at 0 with length 9.
+        assert_eq!(clamp_window_index(0, 9, 9, Some(9)), Some(8));
+        // Deleting middle item at index 5 when total was 10 -> total is 9.
+        assert_eq!(clamp_window_index(0, 9, 9, Some(5)), Some(5));
+        // Deleting the only remaining item -> total is 0.
+        assert_eq!(clamp_window_index(0, 0, 0, Some(0)), None);
     }
 }

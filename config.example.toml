@@ -35,6 +35,7 @@ auto_focus_search = true
 start_view = "clipboard"
 # Valid filters: all, text, images, files, links, colors, pinned.
 default_filter = "all"
+# Valid sorts: default, recent/newest, oldest, type, most-used.
 default_sort = "default"
 search_placeholder = "Search clipboard..."
 secrets_search_placeholder = "Search secrets by name..."

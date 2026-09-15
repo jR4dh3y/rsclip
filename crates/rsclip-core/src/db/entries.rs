@@ -11,6 +11,7 @@ use super::{Database, rows::entry_from_row};
 pub(super) const SUMMARY_TEXT_LIMIT_CHARS: usize = 8 * 1024;
 
 impl Database {
+    /// Inserts a new clipboard entry or updates an existing one if the content hash matches.
     pub fn upsert_entry(&self, entry: &NewEntry) -> Result<i64> {
         let now = Utc::now().timestamp();
         let kind = entry.data.kind();
@@ -120,6 +121,7 @@ impl Database {
         Ok(id)
     }
 
+    /// Queries entries matching filter, query, and sort, up to `limit` entries.
     pub fn list_entries(
         &self,
         query: &str,
@@ -130,6 +132,7 @@ impl Database {
         self.list_entries_page(query, filter, sort, limit, 0)
     }
 
+    /// Queries a paged slice of entries matching query, filter, and sort.
     pub fn list_entries_page(
         &self,
         query: &str,
@@ -205,6 +208,7 @@ impl Database {
         Ok(rows)
     }
 
+    /// Returns the count of active entries matching the query and filter.
     pub fn count_entries(&self, query: &str, filter: EntryFilter) -> Result<usize> {
         let mut sql = String::from(
             r#"
@@ -231,6 +235,7 @@ impl Database {
         Ok(count.max(0) as usize)
     }
 
+    /// Returns a sorted list of unique domain names for link entries.
     pub fn list_link_domains(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             r#"
@@ -249,6 +254,7 @@ impl Database {
         Ok(domains)
     }
 
+    /// Checks whether an identical file URI-list was stored within `window_seconds`.
     pub fn has_recent_file_uri_list(
         &self,
         normalized_uri_list: &str,
@@ -273,6 +279,7 @@ impl Database {
         Ok(exists != 0)
     }
 
+    /// Retrieves an entry by its ID, including full text payload and OCR result if present.
     pub fn get_entry(&self, id: i64) -> Result<Option<ClipboardEntry>> {
         self.conn
             .query_row(
@@ -294,6 +301,7 @@ impl Database {
             .map_err(Into::into)
     }
 
+    /// Toggles the pinned flag for an entry.
     pub fn set_pinned(&self, id: i64, pinned: bool) -> Result<()> {
         self.conn.execute(
             "UPDATE entries SET pinned = ?2, updated_at = ?3 WHERE id = ?1",
@@ -302,6 +310,7 @@ impl Database {
         Ok(())
     }
 
+    /// Marks an entry as soft-deleted.
     pub fn delete_entry(&self, id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE entries SET deleted = 1, updated_at = ?2 WHERE id = ?1",
@@ -310,6 +319,7 @@ impl Database {
         Ok(())
     }
 
+    /// Increments the use count and updates the last used timestamp for an entry.
     pub fn touch_used(&self, id: i64) -> Result<()> {
         let now = Utc::now().timestamp();
         self.conn.execute(
@@ -319,6 +329,7 @@ impl Database {
         Ok(())
     }
 
+    /// Soft-deletes unpinned entries older than the specified number of days.
     pub fn delete_unpinned_older_than_days(&self, days: u32) -> Result<usize> {
         if days == 0 {
             return Ok(0);

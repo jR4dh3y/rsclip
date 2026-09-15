@@ -5,6 +5,7 @@ use rusqlite::params;
 use super::Database;
 
 impl Database {
+    /// Save or update an OCR recognition result for an entry in `ocr_results`.
     pub fn save_ocr_result(&self, entry_id: i64, language: &str, text: &str) -> Result<()> {
         let now = Utc::now().timestamp();
         self.conn.execute(

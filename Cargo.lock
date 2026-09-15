@@ -1365,7 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-core"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1374,17 +1374,15 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
- "thiserror",
  "toml",
  "url",
 ]
 
 [[package]]
 name = "rsclip-daemon"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "anyhow",
- "chrono",
  "image",
  "rsclip-core",
  "scraper",
@@ -1397,17 +1395,15 @@ dependencies = [
 
 [[package]]
 name = "rsclip-ui"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "anyhow",
- "chrono",
  "gdk-pixbuf",
  "gio",
  "glib",
  "gtk4",
  "gtk4-layer-shell",
  "rsclip-core",
- "serde_json",
  "tracing",
  "tracing-subscriber",
 ]

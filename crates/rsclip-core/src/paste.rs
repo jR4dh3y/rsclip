@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::models::{ClipboardEntry, EntryData};
 
+/// Restores an entry's raw bytes/text to the Wayland clipboard via wl-copy.
 pub fn copy_entry(entry: &ClipboardEntry) -> Result<()> {
     copy_entry_with_writer(entry, write_clipboard)
 }
@@ -39,10 +40,12 @@ fn copy_entry_with_writer(
     }
 }
 
+/// Copies an entry to the clipboard and optionally triggers an automated paste using wtype.
 pub fn paste_entry(entry: &ClipboardEntry, auto_paste: bool, delay_ms: u64) -> Result<()> {
     paste_entry_with_method(entry, auto_paste, delay_ms, "wtype")
 }
 
+/// Copies an entry to the clipboard and optionally triggers an automated paste using the given tool.
 pub fn paste_entry_with_method(
     entry: &ClipboardEntry,
     auto_paste: bool,
@@ -57,6 +60,7 @@ pub fn paste_entry_with_method(
     Ok(())
 }
 
+/// Pipes the given MIME type and bytes to `wl-copy`.
 pub fn write_clipboard(mime_type: &str, bytes: &[u8]) -> Result<()> {
     let mut child = Command::new("wl-copy")
         .arg("--type")
@@ -77,10 +81,12 @@ pub fn write_clipboard(mime_type: &str, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Triggers a Ctrl+V key combination using wtype.
 pub fn trigger_paste() -> Result<()> {
     trigger_paste_with_method("wtype")
 }
 
+/// Triggers a paste key combination using the configured method (e.g. "wtype").
 pub fn trigger_paste_with_method(method: &str) -> Result<()> {
     match method.trim() {
         "wtype" => trigger_paste_wtype(),

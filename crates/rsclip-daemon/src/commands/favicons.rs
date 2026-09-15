@@ -14,14 +14,9 @@ pub fn run(args: &[String]) -> Result<()> {
 fn clear() -> Result<()> {
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
-    clear_paths(&paths)?;
+    favicons::clear_cache(&paths)?;
     notify_favicons_changed(&paths);
     println!("cleared favicon cache");
-    Ok(())
-}
-
-fn clear_paths(paths: &RsclipPaths) -> Result<()> {
-    favicons::clear_cache(paths)?;
     Ok(())
 }
 
@@ -84,7 +79,7 @@ mod tests {
         fs::write(paths.favicon_miss_dir.join("domain.miss"), b"miss").unwrap();
         fs::write(paths.favicon_queue_dir.join("domain.json"), b"{}").unwrap();
 
-        clear_paths(&paths).unwrap();
+        favicons::clear_cache(&paths).unwrap();
 
         assert!(
             fs::read_dir(&paths.favicon_icon_dir)

@@ -5,7 +5,10 @@ use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::secrets::{default_secret_alias, secret_value_from_entry};
 
-use crate::actions::refresh::refresh_entries;
+use crate::actions::refresh::{
+    current_selected_index, refresh_entries, refresh_entries_at_index,
+    refresh_entries_preserving_selection,
+};
 use crate::actions::{set_footer, update_mode_controls};
 use crate::dialogs::secret_alias::prompt_secret_alias;
 use crate::state::{AppState, AppView, current_entry, current_full_entry, current_secret};
@@ -58,7 +61,7 @@ pub(crate) fn rename_current_secret_dialog(state: &Rc<AppState>, parent: &gtk::W
         &secret.alias,
         move |state, alias| {
             state.db.rename_secret(secret.id, &alias)?;
-            refresh_entries(state)?;
+            refresh_entries_preserving_selection(state)?;
             set_footer(state, "Renamed secret");
             Ok(())
         },
@@ -68,15 +71,17 @@ pub(crate) fn rename_current_secret_dialog(state: &Rc<AppState>, parent: &gtk::W
 pub(crate) fn toggle_pin(state: &Rc<AppState>) -> Result<()> {
     let entry = current_entry(state).context("no selected entry")?;
     state.db.set_pinned(entry.id, !entry.pinned)?;
-    refresh_entries(state)
+    refresh_entries_preserving_selection(state)
 }
 
 pub(crate) fn delete_current(state: &Rc<AppState>) -> Result<()> {
     let view = *state.view.borrow();
+    let prev_index = current_selected_index(state);
     match view {
         AppView::Clipboard => {
             let entry = current_entry(state).context("no selected entry")?;
             state.db.delete_entry(entry.id)?;
+            refresh_entries_at_index(state, prev_index)?;
         }
         AppView::Secrets => {
             let secret = current_secret(state).context("no selected secret")?;
@@ -90,8 +95,11 @@ pub(crate) fn delete_current(state: &Rc<AppState>) -> Result<()> {
                     crate::window::search_placeholder(state.as_ref(), AppView::Clipboard);
                 state.search_entry.set_placeholder_text(Some(&placeholder));
                 update_mode_controls(state);
+                refresh_entries(state)?;
+            } else {
+                refresh_entries_at_index(state, prev_index)?;
             }
         }
     }
-    refresh_entries(state)
+    Ok(())
 }

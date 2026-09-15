@@ -1,5 +1,6 @@
 use crate::models::{ClipboardEntry, EntryData};
 
+/// Extracts a text-like value from a clipboard entry suitable for storage as a secret.
 pub fn secret_value_from_entry(entry: &ClipboardEntry) -> Option<String> {
     match &entry.data {
         EntryData::Image { ocr_text, .. } => ocr_text
@@ -17,6 +18,7 @@ pub fn secret_value_from_entry(entry: &ClipboardEntry) -> Option<String> {
     }
 }
 
+/// Generates a sensible default alias when promoting a clipboard entry to a secret.
 pub fn default_secret_alias(entry: &ClipboardEntry) -> String {
     if matches!(
         &entry.data,
@@ -33,6 +35,7 @@ pub fn default_secret_alias(entry: &ClipboardEntry) -> String {
     }
 }
 
+/// Trims an alias and falls back to "Untitled secret" if empty.
 pub fn normalize_secret_alias(alias: &str) -> &str {
     let normalized = alias.trim();
     if normalized.is_empty() {

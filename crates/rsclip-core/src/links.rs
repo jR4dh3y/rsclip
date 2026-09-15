@@ -1,12 +1,17 @@
 use url::Url;
 
+/// Extracted link metadata.
 #[derive(Clone, Debug)]
 pub struct LinkInfo {
+    /// Full normalized URL string.
     pub url: String,
+    /// Domain name stripped of leading `www.` (e.g. `github.com`).
     pub domain: String,
+    /// Icon identifier for recognized platforms or generic fallback.
     pub icon: String,
 }
 
+/// Detect whether the provided text consists solely of a single valid HTTP/HTTPS URL.
 pub fn detect_single_url(text: &str) -> Option<LinkInfo> {
     let trimmed = text.trim();
     if trimmed.is_empty() || trimmed.split_whitespace().count() != 1 {
@@ -49,6 +54,7 @@ fn is_valid_web_host(host: &str) -> bool {
         })
 }
 
+/// Return the icon name for a known domain, or `"globe"` for general web links.
 pub fn icon_for_domain(domain: &str) -> &'static str {
     match domain {
         "github.com" => "github",
