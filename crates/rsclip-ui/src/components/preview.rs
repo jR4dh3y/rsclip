@@ -12,12 +12,12 @@ use crate::components::details::{render_details, render_secret_details};
 use crate::components::labels::{muted_label, section_label};
 use crate::state::AppState;
 
-/// UI-side safety net for previews. The daemon bounds new payloads with
-/// `max_text_bytes` (default 1 MiB), but legacy rows can be larger; cap what
-/// the `TextView` layouts so one bloated row cannot freeze the GTK thread.
-pub(crate) const MAX_FULL_PREVIEW_BYTES: usize = 1024 * 1024;
-const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
+/// UI-side safety net for previews. Capped at 64 KiB so large text entries
+/// layout smoothly in `TextView` without blocking the GTK main thread.
+pub(crate) const MAX_FULL_PREVIEW_BYTES: usize = 64 * 1024;
+pub(crate) const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
     "\n\n[Preview truncated — copy the entry for full content]";
+pub(crate) const BINARY_PREVIEW_NOTICE: &str = "[Binary data — copy the entry for full content]";
 
 pub(crate) struct PreviewPanel {
     pub(crate) shell: gtk::Box,
@@ -183,12 +183,15 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         }
         EntryData::File { .. } => render_file_preview(state, &full),
         EntryData::Text | EntryData::Unknown => {
-            render_text_preview(
-                &state.preview,
-                full.text_content
-                    .as_deref()
-                    .or(full.preview_text.as_deref()),
-            );
+            let content = full
+                .text_content
+                .as_deref()
+                .or(full.preview_text.as_deref());
+            if content.is_none() && matches!(full.data, EntryData::Unknown) {
+                render_text_preview(&state.preview, Some(BINARY_PREVIEW_NOTICE));
+            } else {
+                render_text_preview(&state.preview, content);
+            }
         }
     }
 
@@ -382,9 +385,19 @@ fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> Clipb
         .unwrap_or_else(|| entry.clone())
 }
 
+fn is_binary_payload(text: &str) -> bool {
+    text.as_bytes().contains(&0)
+}
+
 fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
+    let preview_text = bounded_full_preview(text.unwrap_or(""));
+    let sanitized = if preview_text.contains('\0') {
+        std::borrow::Cow::Owned(preview_text.replace('\0', " "))
+    } else {
+        preview_text
+    };
     let buffer = gtk::TextBuffer::new(None);
-    buffer.set_text(&bounded_full_preview(text.unwrap_or("")));
+    buffer.set_text(&sanitized);
     let view = gtk::TextView::with_buffer(&buffer);
     view.add_css_class("preview-text");
     view.set_editable(false);
@@ -405,11 +418,16 @@ fn render_text_preview(container: &gtk::Box, text: Option<&str>) {
     container.append(&scroller);
 }
 
-/// Cap preview text without splitting a UTF-8 code point.
+/// Cap preview text without splitting a UTF-8 code point, and detect binary payloads.
 ///
-/// New payloads are bounded by the daemon, but legacy rows can exceed it;
-/// keep one bloated row from freezing the GTK thread during layout.
+/// Bounded to 64 KiB so large text entries layout smoothly in `TextView` without
+/// freezing the GTK main thread. Payloads containing interior null bytes are treated
+/// as binary and presented with an explanatory notice instead of crashing GTK FFI.
 fn bounded_full_preview(text: &str) -> std::borrow::Cow<'_, str> {
+    if is_binary_payload(text) {
+        return std::borrow::Cow::Borrowed(BINARY_PREVIEW_NOTICE);
+    }
+
     if text.len() <= MAX_FULL_PREVIEW_BYTES {
         return std::borrow::Cow::Borrowed(text);
     }
@@ -426,7 +444,10 @@ fn bounded_full_preview(text: &str) -> std::borrow::Cow<'_, str> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FULL_PREVIEW_TRUNCATED_NOTICE, MAX_FULL_PREVIEW_BYTES, bounded_full_preview};
+    use super::{
+        BINARY_PREVIEW_NOTICE, FULL_PREVIEW_TRUNCATED_NOTICE, MAX_FULL_PREVIEW_BYTES,
+        bounded_full_preview,
+    };
 
     #[test]
     fn preview_is_bounded_on_utf8_boundary() {
@@ -442,5 +463,11 @@ mod tests {
     fn small_preview_is_unchanged() {
         let text = "small clipboard entry";
         assert_eq!(bounded_full_preview(text), text);
+    }
+
+    #[test]
+    fn binary_payload_shows_binary_notice() {
+        let binary = "some\0binary\0data";
+        assert_eq!(bounded_full_preview(binary), BINARY_PREVIEW_NOTICE);
     }
 }
