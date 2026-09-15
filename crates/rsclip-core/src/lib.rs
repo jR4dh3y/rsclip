@@ -12,6 +12,7 @@ pub mod models;
 pub mod notify;
 pub mod ocr;
 pub mod paste;
+pub mod profiler;
 pub mod secrets;
 pub mod storage;
 
