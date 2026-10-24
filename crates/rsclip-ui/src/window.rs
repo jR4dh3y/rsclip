@@ -16,7 +16,7 @@ use crate::state::{AppState, AppView, advance_clipboard_serial};
 pub(crate) struct UiRuntime {
     pub(crate) state: Rc<AppState>,
     pub(crate) window: gtk::ApplicationWindow,
-    _config_monitor: gio::FileMonitor,
+    _config_monitor: crate::config_reload::ConfigWatcher,
     _hold: gio::ApplicationHoldGuard,
 }
 

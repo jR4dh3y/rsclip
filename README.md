@@ -184,6 +184,18 @@ rsclip includes a built-in secrets vault to safeguard credentials and tokens:
 rsclip reads `~/.config/rsclip/config.toml`. Start from `config.example.toml`
 for the full set of options.
 
+Split shared settings or theme files into separate TOML files:
+
+```toml
+include = "themes/nonchalant-dark.toml"
+# or: include = ["base.toml", "themes/nonchalant-dark.toml"]
+```
+
+Earlier entries have the lowest precedence and the main file wins, so a
+theme file can hold `[ui.colors]` while `config.toml` keeps behavior settings.
+Paths resolve relative to the file declaring them, nested includes work, and
+edits to included files under the config dir hot-reload like `config.toml`.
+
 History settings control UI list size, payload caps, dedupe behavior, and optional
 soft cleanup for old unpinned entries. Byte caps and cleanup use `0` as disabled.
 

@@ -1,8 +1,8 @@
 use std::fs;
 use std::io::ErrorKind;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use directories::ProjectDirs;
 use serde::Deserialize;
 
@@ -351,16 +351,199 @@ impl RsclipPaths {
 
 impl AppConfig {
     /// Load configuration from `config.toml`, returning default values if the file does not exist.
+    ///
+    /// The top-level `include` key optionally pulls in other TOML files, for
+    /// example separate theme files:
+    ///
+    /// ```toml
+    /// include = "themes/nonchalant-dark.toml"
+    /// # or: include = ["base.toml", "themes/nonchalant-dark.toml"]
+    /// ```
+    ///
+    /// Includes merge depth-first: earlier entries have the lowest precedence,
+    /// later entries override them, and the including file itself wins. Paths
+    /// are resolved relative to the file that declares them. Included files
+    /// may themselves `include` further files (cycles and depth > 16 fail).
     pub fn load(paths: &RsclipPaths) -> Result<Self> {
         let path = paths.config_path();
-        let contents = match fs::read_to_string(&path) {
-            Ok(contents) => contents,
-            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(Self::default()),
-            Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
-        };
-
-        toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))
+        let mut stack = Vec::new();
+        match load_merged_value(&path, 0, &mut stack)? {
+            None => Ok(Self::default()),
+            Some(value) => value
+                .try_into()
+                .with_context(|| format!("parsing {}", path.display())),
+        }
     }
+
+    /// All paths that contribute to or are referenced by the loaded config,
+    /// including missing or invalid included files. Used by the resident UI
+    /// to watch and hot-reload theme files.
+    pub fn dependencies(paths: &RsclipPaths) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        let mut stack = Vec::new();
+        collect_dependencies(&paths.config_path(), 0, &mut stack, &mut out);
+        out
+    }
+}
+
+/// Maximum nesting for `include` directives (main file is depth 0).
+const MAX_INCLUDE_DEPTH: usize = 16;
+
+/// Load a single TOML file plus everything it (transitively) includes,
+/// deep-merged into one [`toml::Value`].
+///
+/// Returns `None` only when the top-level file (`depth == 0`) does not exist,
+/// so callers can fall back to defaults. A missing *included* file is an error.
+fn load_merged_value(
+    path: &Path,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+) -> Result<Option<toml::Value>> {
+    if depth > MAX_INCLUDE_DEPTH {
+        bail!(
+            "include depth exceeds {MAX_INCLUDE_DEPTH}: {}",
+            path.display()
+        );
+    }
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == ErrorKind::NotFound && depth == 0 => return Ok(None),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", path.display())),
+    };
+
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if stack.contains(&canonical) {
+        bail!("cyclic config include: {}", path.display());
+    }
+    stack.push(canonical);
+
+    let mut value: toml::Value = if contents.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        toml::from_str(&contents).with_context(|| format!("parsing {}", path.display()))?
+    };
+
+    let includes = extract_includes(&mut value, path)?;
+    let mut merged = toml::Value::Table(toml::map::Map::new());
+    for include in includes {
+        match load_merged_value(&include, depth + 1, stack)? {
+            Some(included) => deep_merge(&mut merged, included),
+            // Unreachable: nested missing files error above instead of
+            // returning `None`, which is reserved for a missing top-level file.
+            None => bail!("included config not found: {}", include.display()),
+        }
+    }
+    deep_merge(&mut merged, value);
+
+    stack.pop();
+    Ok(Some(merged))
+}
+
+/// Remove and resolve the top-level `include` key (`"file.toml"` or
+/// `["a.toml", "b.toml"]`). Relative entries resolve against the directory of
+/// the file that declares them.
+fn extract_includes(value: &mut toml::Value, including_path: &Path) -> Result<Vec<PathBuf>> {
+    let table = match value {
+        toml::Value::Table(table) => table,
+        _ => return Ok(Vec::new()),
+    };
+    let raw = match table.remove("include") {
+        None => return Ok(Vec::new()),
+        Some(raw) => raw,
+    };
+    let entries: Vec<String> = match raw {
+        toml::Value::String(single) => vec![single],
+        toml::Value::Array(items) => items
+            .into_iter()
+            .enumerate()
+            .map(|(index, item)| match item {
+                toml::Value::String(path) => Ok(path),
+                other => Err(anyhow::anyhow!(
+                    "include[{index}] in {} must be a string, got {}",
+                    including_path.display(),
+                    other.type_str()
+                )),
+            })
+            .collect::<Result<Vec<_>>>()?,
+        other => bail!(
+            "`include` in {} must be a string or list of strings, got {}",
+            including_path.display(),
+            other.type_str()
+        ),
+    };
+
+    let base_dir = including_path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(entries
+        .into_iter()
+        .map(|entry| {
+            let candidate = PathBuf::from(&entry);
+            if candidate.is_absolute() {
+                candidate
+            } else {
+                base_dir.join(candidate)
+            }
+        })
+        .collect())
+}
+
+/// Recursively merge `overlay` into `base`. Tables merge key-by-key;
+/// any other value (or a missing key) is replaced by the overlay.
+fn deep_merge(base: &mut toml::Value, overlay: toml::Value) {
+    match (base, overlay) {
+        (toml::Value::Table(base_table), toml::Value::Table(overlay_table)) => {
+            for (key, overlay_value) in overlay_table {
+                match base_table.get_mut(&key) {
+                    Some(base_value) => deep_merge(base_value, overlay_value),
+                    None => {
+                        base_table.insert(key, overlay_value);
+                    }
+                }
+            }
+        }
+        (base, overlay) => {
+            *base = overlay;
+        }
+    }
+}
+
+/// Depth-first collection of config dependencies, including missing targets.
+/// Invalid included files remain dependencies so fixing them triggers reload.
+fn collect_dependencies(
+    path: &Path,
+    depth: usize,
+    stack: &mut Vec<PathBuf>,
+    out: &mut Vec<PathBuf>,
+) {
+    if depth > MAX_INCLUDE_DEPTH {
+        return;
+    }
+    let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    if stack.contains(&canonical) {
+        return;
+    }
+    if !out.contains(&canonical) {
+        out.push(canonical.clone());
+    }
+    let Ok(contents) = fs::read_to_string(path) else {
+        return;
+    };
+    stack.push(canonical);
+    let mut value: toml::Value = if contents.trim().is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        match toml::from_str(&contents) {
+            Ok(value) => value,
+            Err(_) => {
+                stack.pop();
+                return;
+            }
+        }
+    };
+    let includes = extract_includes(&mut value, path).unwrap_or_default();
+    for include in includes {
+        collect_dependencies(&include, depth + 1, stack, out);
+    }
+    stack.pop();
 }
 
 #[cfg(test)]
@@ -593,5 +776,209 @@ secrets_search_placeholder = "Search vault"
         assert_eq!(config.ui.default_sort, "most-used");
         assert_eq!(config.ui.search_placeholder, "Search history");
         assert_eq!(config.ui.secrets_search_placeholder, "Search vault");
+    }
+
+    #[test]
+    fn include_single_theme_file_merges_colors() {
+        let paths = test_paths("include-single");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::create_dir_all(paths.config_dir.join("themes"))
+            .expect("test themes dir should be created");
+        fs::write(
+            paths.config_dir.join("themes").join("pink.toml"),
+            r##"
+[ui.colors]
+accent = "#ff00aa"
+accent_text = "#000000"
+"##,
+        )
+        .expect("theme file should be written");
+        fs::write(
+            paths.config_path(),
+            r#"
+include = "themes/pink.toml"
+
+[ui]
+window_width = 1000
+"#,
+        )
+        .expect("main config file should be written");
+
+        let config = AppConfig::load(&paths).expect("config with include should load");
+
+        assert_eq!(config.ui.window_width, 1000);
+        assert_eq!(config.ui.colors.accent.as_deref(), Some("#ff00aa"));
+        assert_eq!(config.ui.colors.accent_text.as_deref(), Some("#000000"));
+        assert!(config.ui.colors.text.is_none());
+    }
+
+    #[test]
+    fn include_main_file_wins_over_theme() {
+        let paths = test_paths("include-override");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(
+            paths.config_dir.join("theme.toml"),
+            r##"
+[ui.colors]
+accent = "#ff00aa"
+text = "#111111"
+"##,
+        )
+        .expect("theme file should be written");
+        fs::write(
+            paths.config_path(),
+            r##"
+include = ["theme.toml"]
+
+[ui.colors]
+accent = "#00ff00"
+"##,
+        )
+        .expect("main config file should be written");
+
+        let config = AppConfig::load(&paths).expect("config with include should load");
+
+        assert_eq!(config.ui.colors.accent.as_deref(), Some("#00ff00"));
+        assert_eq!(config.ui.colors.text.as_deref(), Some("#111111"));
+    }
+
+    #[test]
+    fn include_later_entries_override_earlier_ones() {
+        let paths = test_paths("include-order");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(paths.config_dir.join("a.toml"), "[ui]\ntheme = \"a\"\n")
+            .expect("a.toml should be written");
+        fs::write(paths.config_dir.join("b.toml"), "[ui]\ntheme = \"b\"\n")
+            .expect("b.toml should be written");
+        fs::write(paths.config_path(), "include = [\"a.toml\", \"b.toml\"]\n")
+            .expect("main config file should be written");
+
+        let config = AppConfig::load(&paths).expect("config with includes should load");
+
+        assert_eq!(config.ui.theme, "b");
+    }
+
+    #[test]
+    fn include_nested_files_resolve_relative_to_parent() {
+        let paths = test_paths("include-nested");
+        fs::create_dir_all(paths.config_dir.join("themes"))
+            .expect("test themes dir should be created");
+        fs::write(
+            paths.config_dir.join("themes").join("base.toml"),
+            "[ui]\ntheme = \"nested\"\n",
+        )
+        .expect("base theme should be written");
+        fs::write(
+            paths.config_dir.join("themes").join("mid.toml"),
+            "include = \"base.toml\"\n",
+        )
+        .expect("mid theme should be written");
+        fs::write(paths.config_path(), "include = \"themes/mid.toml\"\n")
+            .expect("main config file should be written");
+
+        let config = AppConfig::load(&paths).expect("nested includes should load");
+
+        assert_eq!(config.ui.theme, "nested");
+        let deps = AppConfig::dependencies(&paths);
+        assert_eq!(deps.len(), 3);
+    }
+    #[test]
+    fn dependencies_include_missing_and_invalid_targets() {
+        let paths = test_paths("include-missing-dependencies");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        let missing = paths.config_dir.join("theme.conf");
+        fs::write(paths.config_path(), "include = \"theme.conf\"\n")
+            .expect("main config should be written");
+        fs::write(&missing, "not valid = TOML =").expect("invalid include should be written");
+
+        let dependencies = AppConfig::dependencies(&paths);
+
+        assert!(dependencies.contains(&paths.config_path()));
+        assert!(dependencies.contains(&missing));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dependencies_traverse_each_symlink_alias() {
+        use std::os::unix::fs::symlink;
+
+        let paths = test_paths("include-alias-dependencies");
+        fs::create_dir_all(paths.config_dir.join("sub")).expect("subdirectory should be created");
+        fs::write(
+            paths.config_dir.join("shared.toml"),
+            "include = \"base.conf\"\n",
+        )
+        .expect("shared include should be written");
+        fs::write(
+            paths.config_dir.join("sub").join("base.conf"),
+            "[ui]\ntheme = \"sub\"\n",
+        )
+        .expect("nested base should be written");
+        fs::write(
+            paths.config_dir.join("base.conf"),
+            "[ui]\ntheme = \"root\"\n",
+        )
+        .expect("root base should be written");
+        symlink(
+            paths.config_dir.join("shared.toml"),
+            paths.config_dir.join("sub").join("alias.toml"),
+        )
+        .expect("nested alias should be created");
+        symlink(
+            paths.config_dir.join("shared.toml"),
+            paths.config_dir.join("alias.toml"),
+        )
+        .expect("root alias should be created");
+        fs::write(
+            paths.config_path(),
+            "include = [\"sub/alias.toml\", \"alias.toml\"]\n",
+        )
+        .expect("main config should be written");
+
+        let dependencies = AppConfig::dependencies(&paths);
+
+        assert!(dependencies.contains(&paths.config_dir.join("base.conf")));
+        assert!(dependencies.contains(&paths.config_dir.join("sub").join("base.conf")));
+    }
+
+    #[test]
+    fn include_missing_file_returns_error() {
+        let paths = test_paths("include-missing");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(paths.config_path(), "include = \"nope.toml\"\n")
+            .expect("main config file should be written");
+
+        let err = AppConfig::load(&paths).unwrap_err();
+
+        assert!(format!("{err:#}").contains("nope.toml"));
+    }
+
+    #[test]
+    fn include_cycle_returns_error() {
+        let paths = test_paths("include-cycle");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(paths.config_path(), "include = \"b.toml\"\n")
+            .expect("main config file should be written");
+        fs::write(
+            paths.config_dir.join("b.toml"),
+            "include = \"config.toml\"\n",
+        )
+        .expect("b.toml should be written");
+
+        let err = AppConfig::load(&paths).unwrap_err();
+
+        assert!(format!("{err:#}").contains("cyclic"));
+    }
+
+    #[test]
+    fn include_wrong_type_returns_error() {
+        let paths = test_paths("include-type");
+        fs::create_dir_all(&paths.config_dir).expect("test config dir should be created");
+        fs::write(paths.config_path(), "include = 42\n")
+            .expect("main config file should be written");
+
+        let err = AppConfig::load(&paths).unwrap_err();
+
+        assert!(format!("{err:#}").contains("include"));
     }
 }

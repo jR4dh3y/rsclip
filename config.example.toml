@@ -1,3 +1,10 @@
+# rsclip looks for `config.toml` in `~/.config/rsclip/`.
+# Split shared settings or themes into other TOML files:
+#   include = "themes/nonchalant-dark.toml"
+#   include = ["base.toml", "themes/nonchalant-dark.toml"]
+# Earlier entries have the lowest precedence; this file itself wins.
+# Paths are relative to the file that declares them, and included files
+# may include further files. Theme-file edits under the config dir hot-reload.
 [history]
 max_entries = 2000
 # Set either value to 0 for unlimited payloads, for example:

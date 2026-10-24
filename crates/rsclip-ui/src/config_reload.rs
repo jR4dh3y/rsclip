@@ -1,6 +1,6 @@
 use std::cell::RefCell;
-use std::path::Path;
-use std::rc::Rc;
+use std::path::{Path, PathBuf};
+use std::rc::{Rc, Weak};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -15,48 +15,118 @@ use crate::state::AppState;
 
 const CONFIG_RELOAD_DEBOUNCE: Duration = Duration::from_millis(120);
 
+pub(crate) struct ConfigWatcher {
+    _monitors: Rc<RefCell<Vec<gio::FileMonitor>>>,
+}
+
 pub(crate) fn install_config_watcher(
     state: &Rc<AppState>,
     window: &gtk::ApplicationWindow,
     paths: &RsclipPaths,
-) -> Result<gio::FileMonitor> {
-    let config_dir = gio::File::for_path(&paths.config_dir);
-    let monitor = config_dir
-        .monitor_directory(gio::FileMonitorFlags::WATCH_MOVES, gio::Cancellable::NONE)
-        .with_context(|| format!("watching config directory {}", paths.config_dir.display()))?;
-    monitor.set_rate_limit(100);
-
+) -> Result<ConfigWatcher> {
+    let monitors = Rc::new(RefCell::new(Vec::new()));
     let pending_reload = Rc::new(RefCell::new(None::<gtk::glib::SourceId>));
+    let dependencies = AppConfig::dependencies(paths);
+    let known_deps = Rc::new(RefCell::new(dependencies.clone()));
+    let initial_monitors = create_monitors(
+        state,
+        window,
+        paths,
+        &dependencies,
+        &pending_reload,
+        &known_deps,
+        &Rc::downgrade(&monitors),
+    )?;
+    *monitors.borrow_mut() = initial_monitors;
+
+    Ok(ConfigWatcher {
+        _monitors: monitors,
+    })
+}
+
+fn create_monitors(
+    state: &Rc<AppState>,
+    window: &gtk::ApplicationWindow,
+    paths: &RsclipPaths,
+    dependencies: &[PathBuf],
+    pending_reload: &Rc<RefCell<Option<gtk::glib::SourceId>>>,
+    known_deps: &Rc<RefCell<Vec<PathBuf>>>,
+    monitors: &Weak<RefCell<Vec<gio::FileMonitor>>>,
+) -> Result<Vec<gio::FileMonitor>> {
     let config_path = paths.config_path();
-    let paths = paths.clone();
-    let state = Rc::clone(state);
-    let window = window.clone();
+    let config_dir = paths.config_dir.clone();
+    let mut result = Vec::new();
 
-    monitor.connect_changed(move |_, file, other_file, event| {
-        if !should_reload_config(file, other_file, event, &config_path) {
-            return;
-        }
+    for directory in watch_directories(&config_dir, dependencies) {
+        let monitor = gio::File::for_path(&directory)
+            .monitor_directory(gio::FileMonitorFlags::WATCH_MOVES, gio::Cancellable::NONE)
+            .with_context(|| format!("watching config directory {}", directory.display()))?;
+        monitor.set_rate_limit(100);
 
-        if let Some(source_id) = pending_reload.borrow_mut().take() {
-            source_id.remove();
-        }
-
-        let state = Rc::clone(&state);
+        let state = Rc::clone(state);
         let window = window.clone();
         let paths = paths.clone();
-        let pending_reload_for_timeout = Rc::clone(&pending_reload);
-        let source_id = gtk::glib::timeout_add_local_once(CONFIG_RELOAD_DEBOUNCE, move || {
-            let _ = pending_reload_for_timeout.borrow_mut().take();
-            if let Err(err) = reload_config(&state, &window, &paths) {
-                let message = format!("Config reload failed: {err:#}");
-                set_footer(&state, &message);
-                tracing::warn!("{message}");
+        let config_path = config_path.clone();
+        let config_dir = config_dir.clone();
+        let pending_reload = Rc::clone(pending_reload);
+        let known_deps = Rc::clone(known_deps);
+        let monitors = monitors.clone();
+        monitor.connect_changed(move |_, file, other_file, event| {
+            if !should_reload_config(
+                file,
+                other_file,
+                event,
+                &config_path,
+                &config_dir,
+                &known_deps.borrow(),
+            ) {
+                return;
             }
-        });
-        *pending_reload.borrow_mut() = Some(source_id);
-    });
 
-    Ok(monitor)
+            if let Some(source_id) = pending_reload.borrow_mut().take() {
+                source_id.remove();
+            }
+
+            let state = Rc::clone(&state);
+            let window = window.clone();
+            let paths = paths.clone();
+            let pending_reload = Rc::clone(&pending_reload);
+            let known_deps = Rc::clone(&known_deps);
+            let monitors = monitors.clone();
+            let pending_reload_for_timeout = Rc::clone(&pending_reload);
+            let source_id = gtk::glib::timeout_add_local_once(CONFIG_RELOAD_DEBOUNCE, move || {
+                let _ = pending_reload_for_timeout.borrow_mut().take();
+                let result = reload_config(&state, &window, &paths);
+                let dependencies = AppConfig::dependencies(&paths);
+                *known_deps.borrow_mut() = dependencies.clone();
+
+                if let Some(monitors) = monitors.upgrade() {
+                    match create_monitors(
+                        &state,
+                        &window,
+                        &paths,
+                        &dependencies,
+                        &pending_reload_for_timeout,
+                        &known_deps,
+                        &Rc::downgrade(&monitors),
+                    ) {
+                        Ok(updated) => *monitors.borrow_mut() = updated,
+                        Err(err) => tracing::warn!("updating config file monitors failed: {err:#}"),
+                    }
+                }
+
+                if let Err(err) = result {
+                    let message = format!("Config reload failed: {err:#}");
+                    set_footer(&state, &message);
+                    tracing::warn!("{message}");
+                }
+            });
+            *pending_reload.borrow_mut() = Some(source_id);
+        });
+        result.push(monitor);
+    }
+
+    Ok(result)
 }
 
 fn reload_config(
@@ -167,6 +237,8 @@ fn should_reload_config(
     other_file: Option<&gio::File>,
     event: gio::FileMonitorEvent,
     config_path: &Path,
+    config_dir: &Path,
+    dependencies: &[PathBuf],
 ) -> bool {
     let reload_event = matches!(
         event,
@@ -180,11 +252,107 @@ fn should_reload_config(
             | gio::FileMonitorEvent::MovedOut
     );
     reload_event
-        && (file_matches(file, config_path)
-            || other_file.is_some_and(|file| file_matches(file, config_path)))
+        && (file_matches(file, config_path, config_dir, dependencies)
+            || other_file
+                .is_some_and(|file| file_matches(file, config_path, config_dir, dependencies)))
 }
 
-fn file_matches(file: &gio::File, config_path: &Path) -> bool {
-    file.path()
-        .is_some_and(|path| path.as_path() == config_path)
+fn file_matches(
+    file: &gio::File,
+    config_path: &Path,
+    config_dir: &Path,
+    dependencies: &[PathBuf],
+) -> bool {
+    let Some(path) = file.path() else {
+        return false;
+    };
+    let path = path.as_path();
+    if path == config_path {
+        return true;
+    }
+    // Known include targets, including files that do not exist yet.
+    if dependencies
+        .iter()
+        .any(|dependency| dependency == path || dependency.starts_with(path))
+    {
+        return true;
+    }
+    if let Ok(canonical) = path.canonicalize() {
+        if dependencies
+            .iter()
+            .any(|dependency| dependency.as_path() == canonical)
+        {
+            return true;
+        }
+    }
+    // New TOML files directly under the config dir may become includes.
+    path.extension().is_some_and(|ext| ext == "toml") && path.starts_with(config_dir)
+}
+
+fn watch_directories(config_dir: &Path, dependencies: &[PathBuf]) -> Vec<PathBuf> {
+    let mut directories = vec![
+        config_dir
+            .canonicalize()
+            .unwrap_or_else(|_| config_dir.to_path_buf()),
+    ];
+
+    for dependency in dependencies {
+        let mut candidate = dependency.parent();
+        while let Some(directory) = candidate {
+            if directory.is_dir() {
+                let directory = directory
+                    .canonicalize()
+                    .unwrap_or_else(|_| directory.to_path_buf());
+                if !directories.contains(&directory) {
+                    directories.push(directory);
+                }
+                break;
+            }
+            candidate = directory.parent();
+        }
+    }
+
+    directories
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watcher_matches_missing_non_toml_include_and_its_parent() {
+        let config_dir = std::env::temp_dir().join("rsclip-config-test");
+        let config_path = config_dir.join("config.toml");
+        let dependency = config_dir.join("themes").join("theme.conf");
+        let parent = gio::File::for_path(dependency.parent().expect("include parent"));
+        let include = gio::File::for_path(&dependency);
+
+        assert!(file_matches(
+            &parent,
+            &config_path,
+            &config_dir,
+            std::slice::from_ref(&dependency),
+        ));
+        assert!(file_matches(
+            &include,
+            &config_path,
+            &config_dir,
+            std::slice::from_ref(&dependency),
+        ));
+    }
+
+    #[test]
+    fn watcher_uses_existing_parent_for_missing_include_directories() {
+        let config_dir = std::env::temp_dir();
+        let nested = std::env::current_dir().expect("current directory");
+        let dependencies = [
+            config_dir.join("missing/theme.conf"),
+            nested.join("missing/theme.toml"),
+        ];
+
+        let directories = watch_directories(&config_dir, &dependencies);
+
+        assert!(directories.contains(&config_dir.canonicalize().expect("temp dir exists")));
+        assert!(directories.contains(&nested.canonicalize().expect("working dir exists")));
+    }
 }
