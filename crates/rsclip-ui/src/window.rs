@@ -6,7 +6,7 @@ use gio::prelude::*;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::models::{EntryFilter, SortMode};
-use rsclip_core::{AppConfig, Database, RsclipPaths};
+use rsclip_core::{AppConfig, RsclipPaths};
 
 use crate::actions::refresh::{refresh_entries, refresh_entries_with_pending_selection};
 use crate::actions::update_mode_controls;
@@ -96,7 +96,6 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
     let config = AppConfig::load(&paths)?;
-    let db = Database::open(&paths.db_path)?;
     let workers = crate::events::start_workers(paths.db_path.clone())?;
 
     crate::style::load_css(&config)?;
@@ -154,12 +153,13 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     shell.append(&footer_bar.container);
 
     let state = Rc::new(AppState {
-        db,
+        db_path: paths.db_path.clone(),
         list_request_tx: workers.list_request_tx,
         list_response_rx: workers.response_rx,
-        list_generation: Cell::new(0),
+        list_generation: workers.list_generation,
         overlay_generation: Cell::new(0),
         copy_request_tx: workers.copy_request_tx,
+        preview_request_tx: workers.preview_request_tx,
         clipboard_serial: Cell::new(0),
         pending_copies: Cell::new(0),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
@@ -212,6 +212,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         currently_previewed_secret_id: Cell::new(None),
     });
     update_mode_controls(&state);
+    crate::actions::set_footer(&state, "Loading…");
 
     crate::notify::install_change_listener(&state, &window, &paths.socket_path)?;
     let config_monitor = crate::config_reload::install_config_watcher(&state, &window, &paths)?;

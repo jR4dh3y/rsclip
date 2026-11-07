@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use gtk4::prelude::*;
@@ -155,7 +156,7 @@ pub(crate) fn refresh_window_for_scroll(state: &Rc<AppState>) -> Result<()> {
     // Crucial: do not advance generation for smooth scroll window shifts.
     queue_window(
         state,
-        state.list_generation.get(),
+        state.list_generation.load(Ordering::Relaxed),
         normalized_start,
         selected_index,
         true,
@@ -210,7 +211,7 @@ pub(crate) fn ensure_row_rendered(state: &Rc<AppState>, index: usize) -> Result<
     // or discard in-flight list responses.
     queue_window(
         state,
-        state.list_generation.get(),
+        state.list_generation.load(Ordering::Relaxed),
         index.saturating_sub(WINDOW_PADDING_ROWS),
         index,
         true,
@@ -229,11 +230,16 @@ fn queue_window(
     let query = state.query.borrow().clone();
     let filter = *state.filter.borrow();
     let sort = *state.sort.borrow();
-    let (requested_start, row_limit) = fetch_window(
+    let (requested_start, mut row_limit) = fetch_window(
         requested_start,
         current_total(state),
         visible_row_count(state),
     );
+    // First presentation needs one viewport and a little lookahead. Scroll
+    // and selection reloads still use the full window to absorb key repeat.
+    if !preserve_scroll && requested_start == 0 && selected_index == 0 {
+        row_limit = search_window_row_count(state);
+    }
     crate::events::queue_list(
         state,
         crate::state::ListRequest {

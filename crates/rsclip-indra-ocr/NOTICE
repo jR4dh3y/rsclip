@@ -1,0 +1,15 @@
+rsclip-indra-ocr
+
+This crate adapts preprocessing and decoding algorithms from Indra OCR:
+https://github.com/datalab-to/indra
+Copyright Datalab and the Indra contributors. Licensed under Apache-2.0.
+Reference source commit: 3d773aeedc5d79d1d0a2a04007a9075cd71a59f4.
+
+Changes: rewritten in Rust using image and ort; image-only plain-text pipeline,
+single-line recognition batches, pairwise reading order, bounded image input,
+and suppression of overlapping duplicate glyph fragments.
+It does not implement Indra's PDF, deskew, layout, table or math pipeline.
+
+Indra model weights are separately licensed under Datalab's modified OpenRAIL-M
+license. They are not included in this crate. The download script preserves
+their LICENSE beside the weights.

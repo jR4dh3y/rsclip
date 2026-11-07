@@ -16,6 +16,7 @@ method = "wtype"
 [ocr]
 enabled = true
 command = "tesseract"
+# Optional native Indra backend: "rsclip-ocr" (see crates/rsclip-indra-ocr/README.md).
 default_language = "eng"
 # 0 disables the timeout.
 timeout_seconds = 20

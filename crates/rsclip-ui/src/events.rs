@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -27,14 +28,14 @@ use crate::actions::selection::{
 use crate::actions::{set_footer, update_mode_controls};
 use crate::state::{
     AfterCopy, AppState, AppView, CopyRequest, CopyResponse, CopySource, ListRequest, ListResponse,
-    ListResults, WorkerRequest, WorkerResponse, WriteOp, current_entry, current_secret,
-    entry_at_row, secret_at_row,
+    ListResults, PreviewRequest, PreviewResponse, WorkerRequest, WorkerResponse, WriteOp,
+    current_entry, current_secret, entry_at_row, secret_at_row,
 };
 
 /// Delay before applying search so fast typing renders only the final query.
 /// Queries take a few milliseconds and the worker coalesces requests, so this
 /// only needs to cover the gap between keystrokes of a quick burst.
-const SEARCH_DEBOUNCE: Duration = Duration::from_millis(60);
+const SEARCH_DEBOUNCE: Duration = Duration::from_millis(8);
 
 thread_local! {
     /// GTK-thread state that list-worker wakeups deliver responses to.
@@ -45,28 +46,41 @@ thread_local! {
 pub(crate) struct Workers {
     pub(crate) list_request_tx: mpsc::Sender<WorkerRequest>,
     pub(crate) copy_request_tx: mpsc::Sender<CopyRequest>,
+    pub(crate) preview_request_tx: mpsc::Sender<PreviewRequest>,
+    pub(crate) list_generation: Arc<AtomicU64>,
     pub(crate) response_rx: mpsc::Receiver<WorkerResponse>,
 }
 
-/// Start the list worker and the copy worker. Copies get their own thread and
-/// connection so a payload-sized copy never delays a search.
+/// Independent connections keep searches, previews, and payload-sized copies
+/// from blocking one another. Only the list worker opens eagerly.
 pub(crate) fn start_workers(db_path: std::path::PathBuf) -> Result<Workers> {
     let (list_request_tx, list_request_rx) = mpsc::channel();
     let (copy_request_tx, copy_request_rx) = mpsc::channel();
+    let (preview_request_tx, preview_request_rx) = mpsc::channel();
     let (response_tx, response_rx) = mpsc::channel();
     let copy_response_tx = response_tx.clone();
     let copy_db_path = db_path.clone();
+    let preview_db_path = db_path.clone();
+    let preview_response_tx = response_tx.clone();
+    let list_generation = Arc::new(AtomicU64::new(0));
+    let worker_generation = Arc::clone(&list_generation);
     std::thread::Builder::new()
         .name("rsclip-list".to_string())
-        .spawn(move || list_worker(db_path, list_request_rx, response_tx))
+        .spawn(move || list_worker(db_path, list_request_rx, response_tx, worker_generation))
         .context("starting list worker")?;
     std::thread::Builder::new()
         .name("rsclip-copy".to_string())
         .spawn(move || copy_worker(copy_db_path, copy_request_rx, copy_response_tx))
         .context("starting copy worker")?;
+    std::thread::Builder::new()
+        .name("rsclip-preview".to_string())
+        .spawn(move || preview_worker(preview_db_path, preview_request_rx, preview_response_tx))
+        .context("starting preview worker")?;
     Ok(Workers {
         list_request_tx,
         copy_request_tx,
+        preview_request_tx,
+        list_generation,
         response_rx,
     })
 }
@@ -251,6 +265,9 @@ fn drain_list_responses() {
         if let Some(copy) = response.copy {
             finish_copy(&state, copy);
         }
+        if let Some(preview) = response.preview {
+            crate::components::preview::apply_preview_response(&state, preview);
+        }
         if let Some(err) = response.write_error {
             set_footer(&state, &format!("Update failed: {err}"));
         }
@@ -263,6 +280,7 @@ fn list_worker(
     db_path: std::path::PathBuf,
     request_rx: mpsc::Receiver<WorkerRequest>,
     response_tx: mpsc::Sender<WorkerResponse>,
+    generation: Arc<AtomicU64>,
 ) {
     let db = match Database::open(db_path) {
         Ok(db) => db,
@@ -273,6 +291,7 @@ fn list_worker(
                     WorkerRequest::Write(_) => WorkerResponse {
                         list: None,
                         copy: None,
+                        preview: None,
                         write_error: Some(err.clone()),
                     },
                     WorkerRequest::List(request) => WorkerResponse {
@@ -281,6 +300,7 @@ fn list_worker(
                             result: Err(err.clone()),
                         }),
                         copy: None,
+                        preview: None,
                         write_error: None,
                     },
                 };
@@ -312,7 +332,8 @@ fn list_worker(
         }
 
         let list = list_request.map(|request| {
-            let result = load_list(&db, &request).map_err(|err| format!("{err:#}"));
+            let result =
+                load_cancellable_list(&db, &request, &generation).map_err(|err| format!("{err:#}"));
             ListResponse { request, result }
         });
         if (list.is_some() || write_error.is_some())
@@ -321,6 +342,7 @@ fn list_worker(
                 WorkerResponse {
                     list,
                     copy: None,
+                    preview: None,
                     write_error,
                 },
             )
@@ -354,6 +376,7 @@ fn copy_worker(
         };
         let response = WorkerResponse {
             list: None,
+            preview: None,
             copy: Some(CopyResponse {
                 touch: request.source.touch(),
                 then: request.then,
@@ -366,6 +389,65 @@ fn copy_worker(
             break;
         }
     }
+}
+
+/// Open lazily after the first list has loaded, then serve only the newest
+/// queued selection. Schema setup and preview reads never run on GTK.
+fn preview_worker(
+    db_path: std::path::PathBuf,
+    request_rx: mpsc::Receiver<PreviewRequest>,
+    response_tx: mpsc::Sender<WorkerResponse>,
+) {
+    let mut db = None;
+    while let Ok(mut request) = request_rx.recv() {
+        for newer in request_rx.try_iter() {
+            request = newer;
+        }
+        let text = match db.get_or_insert_with(|| Database::open(&db_path)) {
+            Ok(db) => db
+                .get_text_preview(
+                    request.entry.id,
+                    crate::components::preview::MAX_PREVIEW_BYTES + 1,
+                )
+                .map_err(|err| format!("{err:#}")),
+            Err(err) => Err(format!("{err:#}")),
+        };
+        if text.is_err() {
+            db = None;
+        }
+        if !send_worker_response(
+            &response_tx,
+            WorkerResponse {
+                list: None,
+                copy: None,
+                preview: Some(PreviewResponse { request, text }),
+                write_error: None,
+            },
+        ) {
+            break;
+        }
+    }
+}
+
+/// Cancel stale reads between SQLite VM batches. Remove the handler before
+/// returning so a following ordered write can never be interrupted by typing.
+fn load_cancellable_list(
+    db: &Database,
+    request: &ListRequest,
+    generation: &Arc<AtomicU64>,
+) -> anyhow::Result<ListResults> {
+    if generation.load(Ordering::Relaxed) != request.generation {
+        anyhow::bail!("search superseded");
+    }
+    let current = Arc::clone(generation);
+    let requested = request.generation;
+    db.connection().progress_handler(
+        100,
+        Some(move || current.load(Ordering::Relaxed) != requested),
+    );
+    let result = load_list(db, request);
+    db.connection().progress_handler(0, None::<fn() -> bool>);
+    result
 }
 
 /// Load one list window without accessing GTK-owned state.
@@ -423,7 +505,7 @@ fn load_list(db: &Database, request: &ListRequest) -> anyhow::Result<ListResults
 /// Apply a response only when its complete list context is still current.
 fn apply_list_response(state: &Rc<AppState>, response: ListResponse) {
     let request = &response.request;
-    let is_current = request.generation == state.list_generation.get()
+    let is_current = request.generation == state.list_generation.load(Ordering::Relaxed)
         && request.view == *state.view.borrow()
         && request.query == *state.query.borrow()
         && request.filter == *state.filter.borrow()
@@ -667,12 +749,14 @@ fn handle_copy(state: &Rc<AppState>) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, mpsc};
     use std::time::Duration;
 
     use rsclip_core::Database;
     use rsclip_core::models::{EntryFilter, NewEntry, SortMode};
 
-    use super::{SEARCH_DEBOUNCE, start_workers};
+    use super::{SEARCH_DEBOUNCE, load_cancellable_list, start_workers};
     use crate::components::topbar::SEARCH_ENTRY_DELAY_MS;
     use crate::state::{AppView, ListRequest, ListResults, WorkerRequest, WriteOp};
 
@@ -707,6 +791,7 @@ mod tests {
         drop(db);
 
         let workers = start_workers(path.clone()).unwrap();
+        workers.list_generation.store(1, Ordering::Relaxed);
         let (request_tx, response_rx) = (workers.list_request_tx, workers.response_rx);
         request_tx
             .send(WorkerRequest::Write(WriteOp::SetPinned {
@@ -735,6 +820,96 @@ mod tests {
         let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
     }
 
+    #[test]
+    fn superseded_scan_stops_early_and_leaves_following_writes_and_reads_usable() {
+        let path =
+            std::env::temp_dir().join(format!("rsclip-cancel-{}.sqlite", std::process::id()));
+        let db = Database::open(&path).unwrap();
+        db.transaction(|db| {
+            for i in 0..500 {
+                let mut entry =
+                    NewEntry::new(format!("cancel-{i}"), "text/plain".into(), "note".into());
+                entry.text_content = Some("note".into());
+                db.upsert_entry(&entry)?;
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        // Slow each real LIKE evaluation so an uncancelled no-match scan
+        // would take over a second, independent of the machine's CPU speed.
+        let (started_tx, started_rx) = mpsc::channel();
+        let announced = std::sync::atomic::AtomicBool::new(false);
+        db.connection()
+            .create_scalar_function(
+                "like",
+                2,
+                rusqlite::functions::FunctionFlags::SQLITE_UTF8,
+                move |_| {
+                    if !announced.swap(true, Ordering::Relaxed) {
+                        started_tx.send(()).unwrap();
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                    Ok(false)
+                },
+            )
+            .unwrap();
+        let generation = Arc::new(AtomicU64::new(1));
+        let cancel = Arc::clone(&generation);
+        let cancel_thread = std::thread::spawn(move || {
+            started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            cancel.store(2, Ordering::Relaxed);
+        });
+        let mut request = list_request(EntryFilter::All);
+        request.query = "no-match".into();
+        let started = std::time::Instant::now();
+        let result = load_cancellable_list(&db, &request, &generation);
+        let elapsed = started.elapsed();
+        cancel_thread.join().unwrap();
+        let err = result.err().expect("obsolete scan should be interrupted");
+        assert_eq!(
+            err.downcast_ref::<rusqlite::Error>()
+                .and_then(rusqlite::Error::sqlite_error_code),
+            Some(rusqlite::ErrorCode::OperationInterrupted),
+        );
+        assert!(
+            elapsed < Duration::from_millis(750),
+            "cancelled scan took {elapsed:?}"
+        );
+
+        let id: i64 = db
+            .connection()
+            .query_row("SELECT min(id) FROM entries", [], |row| row.get(0))
+            .unwrap();
+        db.set_pinned(id, true).unwrap();
+        let sum: i64 = db.connection().query_row(
+            "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<10000) SELECT sum(x) FROM n",
+            [], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(
+            sum, 50_005_000,
+            "the cancelled read left a progress handler installed"
+        );
+        request.generation = 2;
+        request.query.clear();
+        request.filter = EntryFilter::Pinned;
+        match load_cancellable_list(&db, &request, &generation).unwrap() {
+            ListResults::Clipboard { total, entries, .. } => {
+                assert_eq!(total, 1);
+                assert_eq!(entries[0].id, id);
+            }
+            ListResults::Secrets { .. } => panic!("expected clipboard results"),
+        }
+        println!(
+            "obsolete scan cancelled in {:.2} ms",
+            elapsed.as_secs_f64() * 1000.0
+        );
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+    }
+
     /// Keystroke-to-query delay: GtkSearchEntry's own delay plus our debounce.
     /// It once stacked to ~310 ms (150 + 160), which read as laggy search;
     /// queries themselves take a few milliseconds.
@@ -742,7 +917,7 @@ mod tests {
     fn perf_search_input_latency_budget() {
         let latency = Duration::from_millis(SEARCH_ENTRY_DELAY_MS.into()) + SEARCH_DEBOUNCE;
         assert!(
-            latency <= Duration::from_millis(100),
+            latency <= Duration::from_millis(16),
             "search waits {latency:?} after the last keystroke"
         );
     }

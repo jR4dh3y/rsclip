@@ -1,0 +1,942 @@
+{
+  "date": "2026-11-07",
+  "head": "a3b35349910681ecfb68c69ea4bb80539260c59d",
+  "environment": {
+    "profile": "release",
+    "renderer": "cairo",
+    "compositor": "private headless Weston, pixman",
+    "fixture": "1606 synthetic entries, large image and pathological text",
+    "run_order": [
+      "baseline-1",
+      "optimized-1",
+      "optimized-2",
+      "baseline-2",
+      "baseline-3",
+      "optimized-3"
+    ],
+    "note": "Fresh processes and seeded files. Filesystem caches warm. No compilation alongside paired measurements. Not native layer-shell or disk-cold startup."
+  },
+  "binary_sha256": {
+    "baseline": "16bbe0d628148440efdc192ee03fb0970ce1c2572e8dfcdecb9cc66682d91fbe",
+    "optimized": "a19d8e69b32828e6b3aca4bdc50ad697693db0dfe17357df38752abd0ee9ccaa"
+  },
+  "runs": {
+    "baseline": [
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-baseline-1.log",
+        "startup_ms": {
+          "gtk_init": 2.02,
+          "register": 23.82,
+          "build": 30.57,
+          "show": 5.37,
+          "first_rows": 90.556575,
+          "first_after_paint": 80.73561699999999,
+          "worst_dispatch": 55.09
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 74.76,
+            "painted": 99.59,
+            "worst_dispatch": 17.45
+          },
+          "note 1": {
+            "applied": 72.95,
+            "painted": 102.32,
+            "worst_dispatch": 20.87
+          },
+          "zzqqxx-no-match": {
+            "applied": 71.73,
+            "painted": 91.6,
+            "worst_dispatch": 10.64
+          },
+          "site": {
+            "applied": 73.37,
+            "painted": 100.45,
+            "worst_dispatch": 19.43
+          },
+          "a": {
+            "applied": 73.97,
+            "painted": 101.28,
+            "worst_dispatch": 20.1
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 55.09,
+          "type \"qxbase\" @150ms/char": 21.61,
+          "type \"qxbase\" @40ms/char": 17.05,
+          "type \"qxjson\" @150ms/char": 26.2,
+          "type \"qxjson\" @40ms/char": 15.02,
+          "type \"qxlog\" @150ms/char": 25.71,
+          "type \"qxlog\" @40ms/char": 14.25,
+          "type \"qxcode\" @150ms/char": 26.04,
+          "type \"qxcode\" @40ms/char": 16.13,
+          "type \"qxhuge\" @150ms/char": 26.8,
+          "type \"qxhuge\" @40ms/char": 14.38,
+          "type \"a\" @150ms/char": 10.59,
+          "type \"a\" @40ms/char": 11.23,
+          "type \"note 1\" @150ms/char": 20.76,
+          "type \"note 1\" @40ms/char": 29.93,
+          "key navigation x40": 26.43,
+          "image preview (cold)": 23.84,
+          "code preview, first language use": 53.11,
+          "code preview, language switch": 17.24,
+          "copy 5 MB entry": 11.5,
+          "favicon refresh": 16.94
+        }
+      },
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-baseline-2.log",
+        "startup_ms": {
+          "gtk_init": 1.93,
+          "register": 16.95,
+          "build": 28.39,
+          "show": 3.71,
+          "first_rows": 78.087056,
+          "first_after_paint": 68.319017,
+          "worst_dispatch": 36.34
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 73.9,
+            "painted": 97.34,
+            "worst_dispatch": 16.17
+          },
+          "note 1": {
+            "applied": 72.13,
+            "painted": 100.56,
+            "worst_dispatch": 19.64
+          },
+          "zzqqxx-no-match": {
+            "applied": 71.74,
+            "painted": 91.02,
+            "worst_dispatch": 10.42
+          },
+          "site": {
+            "applied": 72.43,
+            "painted": 99.62,
+            "worst_dispatch": 19.06
+          },
+          "a": {
+            "applied": 73.48,
+            "painted": 100.25,
+            "worst_dispatch": 19.22
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 36.34,
+          "type \"qxbase\" @150ms/char": 21.43,
+          "type \"qxbase\" @40ms/char": 14.86,
+          "type \"qxjson\" @150ms/char": 24.56,
+          "type \"qxjson\" @40ms/char": 14.26,
+          "type \"qxlog\" @150ms/char": 25.84,
+          "type \"qxlog\" @40ms/char": 14.36,
+          "type \"qxcode\" @150ms/char": 24.7,
+          "type \"qxcode\" @40ms/char": 14.95,
+          "type \"qxhuge\" @150ms/char": 24.65,
+          "type \"qxhuge\" @40ms/char": 15.57,
+          "type \"a\" @150ms/char": 12.08,
+          "type \"a\" @40ms/char": 10.38,
+          "type \"note 1\" @150ms/char": 19.47,
+          "type \"note 1\" @40ms/char": 22.31,
+          "key navigation x40": 27.25,
+          "image preview (cold)": 24.92,
+          "code preview, first language use": 56.13,
+          "code preview, language switch": 18.27,
+          "copy 5 MB entry": 11.6,
+          "favicon refresh": 15.75
+        }
+      },
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-baseline-3.log",
+        "startup_ms": {
+          "gtk_init": 4.66,
+          "register": 27.67,
+          "build": 27.14,
+          "show": 4.27,
+          "first_rows": 88.55935099999999,
+          "first_after_paint": 80.23767,
+          "worst_dispatch": 44.67
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 74.08,
+            "painted": 98.06,
+            "worst_dispatch": 16.53
+          },
+          "note 1": {
+            "applied": 72.77,
+            "painted": 100.82,
+            "worst_dispatch": 19.51
+          },
+          "zzqqxx-no-match": {
+            "applied": 71.29,
+            "painted": 90.6,
+            "worst_dispatch": 10.26
+          },
+          "site": {
+            "applied": 72.84,
+            "painted": 100.96,
+            "worst_dispatch": 19.77
+          },
+          "a": {
+            "applied": 73.7,
+            "painted": 101.05,
+            "worst_dispatch": 19.77
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 44.67,
+          "type \"qxbase\" @150ms/char": 20.76,
+          "type \"qxbase\" @40ms/char": 14.98,
+          "type \"qxjson\" @150ms/char": 25.89,
+          "type \"qxjson\" @40ms/char": 14.77,
+          "type \"qxlog\" @150ms/char": 25.93,
+          "type \"qxlog\" @40ms/char": 14.51,
+          "type \"qxcode\" @150ms/char": 26.08,
+          "type \"qxcode\" @40ms/char": 15.3,
+          "type \"qxhuge\" @150ms/char": 24.69,
+          "type \"qxhuge\" @40ms/char": 17.06,
+          "type \"a\" @150ms/char": 11.18,
+          "type \"a\" @40ms/char": 10.55,
+          "type \"note 1\" @150ms/char": 18.99,
+          "type \"note 1\" @40ms/char": 21.81,
+          "key navigation x40": 25.94,
+          "image preview (cold)": 24.96,
+          "code preview, first language use": 53.04,
+          "code preview, language switch": 16.56,
+          "copy 5 MB entry": 11.25,
+          "favicon refresh": 17.39
+        }
+      }
+    ],
+    "optimized": [
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-optimized-1.log",
+        "startup_ms": {
+          "gtk_init": 1.66,
+          "register": 18.11,
+          "build": 5.1,
+          "show": 6.46,
+          "first_rows": 52.379796,
+          "first_after_paint": 49.749151,
+          "worst_dispatch": 34.24
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 12.95,
+            "painted": 36.72,
+            "worst_dispatch": 16.12
+          },
+          "note 1": {
+            "applied": 14.24,
+            "painted": 42.18,
+            "worst_dispatch": 21.15
+          },
+          "zzqqxx-no-match": {
+            "applied": 13.16,
+            "painted": 32.17,
+            "worst_dispatch": 11.09
+          },
+          "site": {
+            "applied": 16.31,
+            "painted": 43.47,
+            "worst_dispatch": 21.96
+          },
+          "a": {
+            "applied": 15.26,
+            "painted": 43.11,
+            "worst_dispatch": 21.44
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 34.24,
+          "type \"qxbase\" @150ms/char": 24.96,
+          "type \"qxbase\" @40ms/char": 25.67,
+          "type \"qxjson\" @150ms/char": 25.05,
+          "type \"qxjson\" @40ms/char": 26.15,
+          "type \"qxlog\" @150ms/char": 25.01,
+          "type \"qxlog\" @40ms/char": 28.63,
+          "type \"qxcode\" @150ms/char": 28.08,
+          "type \"qxcode\" @40ms/char": 26.3,
+          "type \"qxhuge\" @150ms/char": 24.88,
+          "type \"qxhuge\" @40ms/char": 26.15,
+          "type \"a\" @150ms/char": 10.95,
+          "type \"a\" @40ms/char": 13.11,
+          "type \"note 1\" @150ms/char": 19.56,
+          "type \"note 1\" @40ms/char": 15.77,
+          "key navigation x40": 28.31,
+          "image preview (cold)": 26.4,
+          "code preview, first language use": 49.58,
+          "code preview, language switch": 17.24,
+          "copy 5 MB entry": 11.24,
+          "favicon refresh": 17.84,
+          "search while OCR save is locked": 17.33
+        }
+      },
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-optimized-2.log",
+        "startup_ms": {
+          "gtk_init": 1.25,
+          "register": 17.65,
+          "build": 5.52,
+          "show": 7.43,
+          "first_rows": 51.504493,
+          "first_after_paint": 49.089844,
+          "worst_dispatch": 34.35
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 25.33,
+            "painted": 54.59,
+            "worst_dispatch": 21.95
+          },
+          "note 1": {
+            "applied": 18.11,
+            "painted": 41.17,
+            "worst_dispatch": 19.78
+          },
+          "zzqqxx-no-match": {
+            "applied": 13.27,
+            "painted": 31.31,
+            "worst_dispatch": 10.5
+          },
+          "site": {
+            "applied": 14.32,
+            "painted": 39.59,
+            "worst_dispatch": 19.53
+          },
+          "a": {
+            "applied": 15.23,
+            "painted": 52.82,
+            "worst_dispatch": 30.95
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 34.35,
+          "type \"qxbase\" @150ms/char": 22.42,
+          "type \"qxbase\" @40ms/char": 23.76,
+          "type \"qxjson\" @150ms/char": 23.56,
+          "type \"qxjson\" @40ms/char": 19.78,
+          "type \"qxlog\" @150ms/char": 20.1,
+          "type \"qxlog\" @40ms/char": 20.63,
+          "type \"qxcode\" @150ms/char": 20.54,
+          "type \"qxcode\" @40ms/char": 20.78,
+          "type \"qxhuge\" @150ms/char": 21.08,
+          "type \"qxhuge\" @40ms/char": 21.46,
+          "type \"a\" @150ms/char": 25.86,
+          "type \"a\" @40ms/char": 24.3,
+          "type \"note 1\" @150ms/char": 24.44,
+          "type \"note 1\" @40ms/char": 24.04,
+          "key navigation x40": 26.59,
+          "image preview (cold)": 24.16,
+          "code preview, first language use": 51.06,
+          "code preview, language switch": 16.51,
+          "copy 5 MB entry": 10.95,
+          "favicon refresh": 16.25,
+          "search while OCR save is locked": 25.37
+        }
+      },
+      {
+        "log": "/tmp/rsclip-hillclimb/paired-optimized-3.log",
+        "startup_ms": {
+          "gtk_init": 1.19,
+          "register": 15.33,
+          "build": 5.68,
+          "show": 5.7,
+          "first_rows": 50.095797999999995,
+          "first_after_paint": 44.498929,
+          "worst_dispatch": 24.22
+        },
+        "searches": {
+          "qxbase": {
+            "applied": 13.66,
+            "painted": 37.14,
+            "worst_dispatch": 16.07
+          },
+          "note 1": {
+            "applied": 13.89,
+            "painted": 40.9,
+            "worst_dispatch": 19.93
+          },
+          "zzqqxx-no-match": {
+            "applied": 13.12,
+            "painted": 31.21,
+            "worst_dispatch": 10.21
+          },
+          "site": {
+            "applied": 14.7,
+            "painted": 40.28,
+            "worst_dispatch": 19.41
+          },
+          "a": {
+            "applied": 14.57,
+            "painted": 40.78,
+            "worst_dispatch": 19.85
+          }
+        },
+        "scenarios_ms": {
+          "startup dispatch": 24.22,
+          "type \"qxbase\" @150ms/char": 21.23,
+          "type \"qxbase\" @40ms/char": 24.41,
+          "type \"qxjson\" @150ms/char": 24.52,
+          "type \"qxjson\" @40ms/char": 24.84,
+          "type \"qxlog\" @150ms/char": 25.61,
+          "type \"qxlog\" @40ms/char": 24.51,
+          "type \"qxcode\" @150ms/char": 27.45,
+          "type \"qxcode\" @40ms/char": 27.38,
+          "type \"qxhuge\" @150ms/char": 24.48,
+          "type \"qxhuge\" @40ms/char": 25.17,
+          "type \"a\" @150ms/char": 11.14,
+          "type \"a\" @40ms/char": 11.25,
+          "type \"note 1\" @150ms/char": 20.15,
+          "type \"note 1\" @40ms/char": 16.14,
+          "key navigation x40": 25.51,
+          "image preview (cold)": 24.2,
+          "code preview, first language use": 50.65,
+          "code preview, language switch": 16.36,
+          "copy 5 MB entry": 10.64,
+          "favicon refresh": 16.07,
+          "search while OCR save is locked": 15.77
+        }
+      }
+    ]
+  },
+  "comparison": {
+    "UI construction": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 28.39,
+        "min_ms": 27.14,
+        "max_ms": 30.57
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 5.52,
+        "min_ms": 5.1,
+        "max_ms": 5.68
+      },
+      "reduction_percent": 80.6
+    },
+    "First after-paint from GTK init": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 80.238,
+        "min_ms": 68.319,
+        "max_ms": 80.736
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 49.09,
+        "min_ms": 44.499,
+        "max_ms": 49.749
+      },
+      "reduction_percent": 38.8
+    },
+    "First history rows from GTK init": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 88.559,
+        "min_ms": 78.087,
+        "max_ms": 90.557
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 51.504,
+        "min_ms": 50.096,
+        "max_ms": 52.38
+      },
+      "reduction_percent": 41.8
+    },
+    "Worst startup dispatch": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 44.67,
+        "min_ms": 36.34,
+        "max_ms": 55.09
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 34.24,
+        "min_ms": 24.22,
+        "max_ms": 34.35
+      },
+      "reduction_percent": 23.3
+    },
+    "Search applied": {
+      "baseline": {
+        "samples": 15,
+        "median_ms": 72.95,
+        "min_ms": 71.29,
+        "max_ms": 74.76
+      },
+      "optimized": {
+        "samples": 15,
+        "median_ms": 14.32,
+        "min_ms": 12.95,
+        "max_ms": 25.33
+      },
+      "reduction_percent": 80.4
+    },
+    "Search painted": {
+      "baseline": {
+        "samples": 15,
+        "median_ms": 100.25,
+        "min_ms": 90.6,
+        "max_ms": 102.32
+      },
+      "optimized": {
+        "samples": 15,
+        "median_ms": 40.78,
+        "min_ms": 31.21,
+        "max_ms": 54.59
+      },
+      "reduction_percent": 59.3
+    },
+    "First language use": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 53.11,
+        "min_ms": 53.04,
+        "max_ms": 56.13
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 50.65,
+        "min_ms": 49.58,
+        "max_ms": 51.06
+      },
+      "reduction_percent": 4.6
+    },
+    "Navigation worst dispatch": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 26.43,
+        "min_ms": 25.94,
+        "max_ms": 27.25
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 26.59,
+        "min_ms": 25.51,
+        "max_ms": 28.31
+      },
+      "reduction_percent": -0.6
+    },
+    "Copy 5 MB worst dispatch": {
+      "baseline": {
+        "samples": 3,
+        "median_ms": 11.5,
+        "min_ms": 11.25,
+        "max_ms": 11.6
+      },
+      "optimized": {
+        "samples": 3,
+        "median_ms": 10.95,
+        "min_ms": 10.64,
+        "max_ms": 11.24
+      },
+      "reduction_percent": 4.8
+    }
+  },
+  "exploratory_rounds": {
+    "initial-window": {
+      "log": "/tmp/rsclip-hillclimb/initial-window.log",
+      "startup_ms": {
+        "gtk_init": 2.68,
+        "register": 16.62,
+        "build": 26.22,
+        "show": 3.78,
+        "first_rows": 68.22455400000001,
+        "first_after_paint": 65.67213600000001,
+        "worst_dispatch": 29.04
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 71.01,
+          "painted": 96.89,
+          "worst_dispatch": 16.45
+        },
+        "note 1": {
+          "applied": 71.47,
+          "painted": 98.99,
+          "worst_dispatch": 18.51
+        },
+        "zzqqxx-no-match": {
+          "applied": 71.41,
+          "painted": 90.92,
+          "worst_dispatch": 10.2
+        },
+        "site": {
+          "applied": 72.14,
+          "painted": 100.18,
+          "worst_dispatch": 19.67
+        },
+        "a": {
+          "applied": 72.99,
+          "painted": 99.45,
+          "worst_dispatch": 18.92
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 29.04,
+        "type \"qxbase\" @150ms/char": 21.02,
+        "type \"qxbase\" @40ms/char": 13.96,
+        "type \"qxjson\" @150ms/char": 23.56,
+        "type \"qxjson\" @40ms/char": 13.83,
+        "type \"qxlog\" @150ms/char": 25.22,
+        "type \"qxlog\" @40ms/char": 14.17,
+        "type \"qxcode\" @150ms/char": 24.02,
+        "type \"qxcode\" @40ms/char": 14.71,
+        "type \"qxhuge\" @150ms/char": 23.29,
+        "type \"qxhuge\" @40ms/char": 13.5,
+        "type \"a\" @150ms/char": 9.99,
+        "type \"a\" @40ms/char": 10.23,
+        "type \"note 1\" @150ms/char": 18.84,
+        "type \"note 1\" @40ms/char": 19.24,
+        "key navigation x40": 24.65,
+        "image preview (cold)": 23.18,
+        "code preview, first language use": 48.84,
+        "code preview, language switch": 15.71,
+        "copy 5 MB entry": 10.02,
+        "favicon refresh": 15.34
+      }
+    },
+    "debounce-20": {
+      "log": "/tmp/rsclip-hillclimb/debounce-20.log",
+      "startup_ms": {
+        "gtk_init": 1.32,
+        "register": 19.53,
+        "build": 25.76,
+        "show": 4.06,
+        "first_rows": 70.455239,
+        "first_after_paint": 66.26967,
+        "worst_dispatch": 29.85
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 32.08,
+          "painted": 53.53,
+          "worst_dispatch": 15.96
+        },
+        "note 1": {
+          "applied": 31.91,
+          "painted": 56.17,
+          "worst_dispatch": 19.05
+        },
+        "zzqqxx-no-match": {
+          "applied": 31.97,
+          "painted": 47.63,
+          "worst_dispatch": 10.3
+        },
+        "site": {
+          "applied": 32.37,
+          "painted": 55.56,
+          "worst_dispatch": 19.21
+        },
+        "a": {
+          "applied": 32.99,
+          "painted": 56.62,
+          "worst_dispatch": 19.27
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 29.85,
+        "type \"qxbase\" @150ms/char": 19.89,
+        "type \"qxbase\" @40ms/char": 24.37,
+        "type \"qxjson\" @150ms/char": 24.08,
+        "type \"qxjson\" @40ms/char": 25.9,
+        "type \"qxlog\" @150ms/char": 23.95,
+        "type \"qxlog\" @40ms/char": 24.12,
+        "type \"qxcode\" @150ms/char": 24.24,
+        "type \"qxcode\" @40ms/char": 24.27,
+        "type \"qxhuge\" @150ms/char": 24.32,
+        "type \"qxhuge\" @40ms/char": 25.6,
+        "type \"a\" @150ms/char": 10.6,
+        "type \"a\" @40ms/char": 10.08,
+        "type \"note 1\" @150ms/char": 19.37,
+        "type \"note 1\" @40ms/char": 14.78,
+        "key navigation x40": 24.05,
+        "image preview (cold)": 23.49,
+        "code preview, first language use": 50.73,
+        "code preview, language switch": 19.5,
+        "copy 5 MB entry": 10.07,
+        "favicon refresh": 15.93
+      }
+    },
+    "preview-worker": {
+      "log": "/tmp/rsclip-hillclimb/preview-worker.log",
+      "startup_ms": {
+        "gtk_init": 4.21,
+        "register": 21.34,
+        "build": 28.85,
+        "show": 4.65,
+        "first_rows": 79.91928399999999,
+        "first_after_paint": 77.63995899999999,
+        "worst_dispatch": 30.99
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 32.97,
+          "painted": 56.92,
+          "worst_dispatch": 16.57
+        },
+        "note 1": {
+          "applied": 33.34,
+          "painted": 60.39,
+          "worst_dispatch": 22.32
+        },
+        "zzqqxx-no-match": {
+          "applied": 33.37,
+          "painted": 48.21,
+          "worst_dispatch": 10.43
+        },
+        "site": {
+          "applied": 33.3,
+          "painted": 58.06,
+          "worst_dispatch": 19.92
+        },
+        "a": {
+          "applied": 24.24,
+          "painted": 40.65,
+          "worst_dispatch": 16.4
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 30.99,
+        "type \"qxbase\" @150ms/char": 20.4,
+        "type \"qxbase\" @40ms/char": 24.71,
+        "type \"qxjson\" @150ms/char": 25.07,
+        "type \"qxjson\" @40ms/char": 25.12,
+        "type \"qxlog\" @150ms/char": 22.69,
+        "type \"qxlog\" @40ms/char": 24.59,
+        "type \"qxcode\" @150ms/char": 26.92,
+        "type \"qxcode\" @40ms/char": 24.91,
+        "type \"qxhuge\" @150ms/char": 24.65,
+        "type \"qxhuge\" @40ms/char": 25.39,
+        "type \"a\" @150ms/char": 11.55,
+        "type \"a\" @40ms/char": 10.17,
+        "type \"note 1\" @150ms/char": 15.3,
+        "type \"note 1\" @40ms/char": 19.55,
+        "key navigation x40": 24.89,
+        "image preview (cold)": 24.38,
+        "code preview, first language use": 62.2,
+        "code preview, language switch": 16.14,
+        "copy 5 MB entry": 10.61,
+        "favicon refresh": 16.44
+      }
+    },
+    "lazy-code": {
+      "log": "/tmp/rsclip-hillclimb/lazy-code.log",
+      "startup_ms": {
+        "gtk_init": 1.47,
+        "register": 18.93,
+        "build": 5.57,
+        "show": 5.96,
+        "first_rows": 51.570608,
+        "first_after_paint": 48.936185,
+        "worst_dispatch": 33.47
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 23.17,
+          "painted": 51.21,
+          "worst_dispatch": 21.08
+        },
+        "note 1": {
+          "applied": 24.2,
+          "painted": 39.48,
+          "worst_dispatch": 15.26
+        },
+        "zzqqxx-no-match": {
+          "applied": 32.74,
+          "painted": 47.78,
+          "worst_dispatch": 10.44
+        },
+        "site": {
+          "applied": 32.64,
+          "painted": 57.19,
+          "worst_dispatch": 20.16
+        },
+        "a": {
+          "applied": 33.61,
+          "painted": 66.32,
+          "worst_dispatch": 29.01
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 33.47,
+        "type \"qxbase\" @150ms/char": 19.71,
+        "type \"qxbase\" @40ms/char": 20.41,
+        "type \"qxjson\" @150ms/char": 21.34,
+        "type \"qxjson\" @40ms/char": 20.88,
+        "type \"qxlog\" @150ms/char": 20.08,
+        "type \"qxlog\" @40ms/char": 20.05,
+        "type \"qxcode\" @150ms/char": 24.84,
+        "type \"qxcode\" @40ms/char": 22.77,
+        "type \"qxhuge\" @150ms/char": 20.22,
+        "type \"qxhuge\" @40ms/char": 20.47,
+        "type \"a\" @150ms/char": 25.08,
+        "type \"a\" @40ms/char": 24.39,
+        "type \"note 1\" @150ms/char": 24.8,
+        "type \"note 1\" @40ms/char": 24.95,
+        "key navigation x40": 24.56,
+        "image preview (cold)": 23.92,
+        "code preview, first language use": 50.01,
+        "code preview, language switch": 16.01,
+        "copy 5 MB entry": 11.06,
+        "favicon refresh": 15.79
+      }
+    },
+    "debounce-8": {
+      "log": "/tmp/rsclip-hillclimb/debounce-8.log",
+      "startup_ms": {
+        "gtk_init": 7.43,
+        "register": 21.54,
+        "build": 5.23,
+        "show": 5.59,
+        "first_rows": 61.252801000000005,
+        "first_after_paint": 58.542295,
+        "worst_dispatch": 36.95
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 22.8,
+          "painted": 49.55,
+          "worst_dispatch": 19.43
+        },
+        "note 1": {
+          "applied": 18.37,
+          "painted": 41.45,
+          "worst_dispatch": 19.6
+        },
+        "zzqqxx-no-match": {
+          "applied": 13.32,
+          "painted": 32.11,
+          "worst_dispatch": 10.65
+        },
+        "site": {
+          "applied": 14.02,
+          "painted": 39.0,
+          "worst_dispatch": 18.91
+        },
+        "a": {
+          "applied": 14.05,
+          "painted": 50.31,
+          "worst_dispatch": 29.17
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 36.95,
+        "type \"qxbase\" @150ms/char": 20.32,
+        "type \"qxbase\" @40ms/char": 20.15,
+        "type \"qxjson\" @150ms/char": 20.21,
+        "type \"qxjson\" @40ms/char": 19.87,
+        "type \"qxlog\" @150ms/char": 19.42,
+        "type \"qxlog\" @40ms/char": 20.09,
+        "type \"qxcode\" @150ms/char": 21.93,
+        "type \"qxcode\" @40ms/char": 20.07,
+        "type \"qxhuge\" @150ms/char": 20.1,
+        "type \"qxhuge\" @40ms/char": 20.18,
+        "type \"a\" @150ms/char": 24.16,
+        "type \"a\" @40ms/char": 24.6,
+        "type \"note 1\" @150ms/char": 24.76,
+        "type \"note 1\" @40ms/char": 24.89,
+        "key navigation x40": 25.15,
+        "image preview (cold)": 23.86,
+        "code preview, first language use": 54.98,
+        "code preview, language switch": 17.48,
+        "copy 5 MB entry": 10.93,
+        "favicon refresh": 16.0
+      }
+    },
+    "cancellation": {
+      "log": "/tmp/rsclip-hillclimb/cancellation.log",
+      "startup_ms": {
+        "gtk_init": 7.78,
+        "register": 21.23,
+        "build": 6.34,
+        "show": 8.96,
+        "first_rows": 68.74001100000001,
+        "first_after_paint": 65.91404,
+        "worst_dispatch": 41.18
+      },
+      "searches": {
+        "qxbase": {
+          "applied": 24.44,
+          "painted": 53.98,
+          "worst_dispatch": 22.05
+        },
+        "note 1": {
+          "applied": 19.04,
+          "painted": 41.36,
+          "worst_dispatch": 19.48
+        },
+        "zzqqxx-no-match": {
+          "applied": 13.19,
+          "painted": 30.81,
+          "worst_dispatch": 10.16
+        },
+        "site": {
+          "applied": 14.17,
+          "painted": 40.23,
+          "worst_dispatch": 19.7
+        },
+        "a": {
+          "applied": 13.85,
+          "painted": 50.12,
+          "worst_dispatch": 29.7
+        }
+      },
+      "scenarios_ms": {
+        "startup dispatch": 41.18,
+        "type \"qxbase\" @150ms/char": 19.79,
+        "type \"qxbase\" @40ms/char": 19.47,
+        "type \"qxjson\" @150ms/char": 20.32,
+        "type \"qxjson\" @40ms/char": 20.13,
+        "type \"qxlog\" @150ms/char": 19.86,
+        "type \"qxlog\" @40ms/char": 19.93,
+        "type \"qxcode\" @150ms/char": 22.91,
+        "type \"qxcode\" @40ms/char": 19.76,
+        "type \"qxhuge\" @150ms/char": 20.43,
+        "type \"qxhuge\" @40ms/char": 21.65,
+        "type \"a\" @150ms/char": 23.45,
+        "type \"a\" @40ms/char": 24.51,
+        "type \"note 1\" @150ms/char": 23.46,
+        "type \"note 1\" @40ms/char": 28.34,
+        "key navigation x40": 25.98,
+        "image preview (cold)": 23.85,
+        "code preview, first language use": 88.97,
+        "code preview, language switch": 16.8,
+        "copy 5 MB entry": 11.17,
+        "favicon refresh": 16.4,
+        "search while OCR save is locked": 26.99
+      }
+    }
+  },
+  "startup_lock_log": "\n(process:363283): Gtk-WARNING **: 12:08:43.824: Unable to acquire session bus: Cannot autolaunch D-Bus without X11 $DISPLAY\nit appears your Wayland compositor does not support the Session Lock protocol\n\n** (process:363283): WARNING **: 12:08:43.824: Failed to initialize layer surface, it appears your Wayland compositor doesn't support Layer Shell\nstartup from gtk::init: init 1.17 ms, register 16.58 ms, build 5.35 ms, show 6.04 ms, first rows None ms, first after-paint Some(45.490835) ms, worst dispatch 16.04 ms\nstartup lock: shell painted while migration waited; history loaded after unlock\nsearch latency \"qxbase\": applied 13.29 ms, painted 38.04 ms, worst dispatch 16.84 ms\nsearch latency \"note 1\": applied 13.85 ms, painted 40.53 ms, worst dispatch 19.53 ms\nsearch latency \"zzqqxx-no-match\": applied 12.95 ms, painted 31.16 ms, worst dispatch 10.27 ms\nsearch latency \"site\": applied 14.34 ms, painted 41.21 ms, worst dispatch 21.02 ms\nsearch latency \"a\": applied 15.15 ms, painted 42.00 ms, worst dispatch 20.77 ms\nworker integration: bounded preview, stale response, secret search/rename/delete, and OCR lock contention passed\n\nworst GTK main-loop dispatch per scenario (budget 100 ms)\n  startup dispatch                    16.04 ms\n  type \"qxbase\" @150ms/char           20.33 ms\n  type \"qxbase\" @40ms/char            24.45 ms\n  type \"qxjson\" @150ms/char           24.07 ms\n  type \"qxjson\" @40ms/char            25.56 ms\n  type \"qxlog\" @150ms/char            25.18 ms\n  type \"qxlog\" @40ms/char             24.40 ms\n  type \"qxcode\" @150ms/char           25.05 ms\n  type \"qxcode\" @40ms/char            24.96 ms\n  type \"qxhuge\" @150ms/char           24.58 ms\n  type \"qxhuge\" @40ms/char            26.39 ms\n  type \"a\" @150ms/char                11.52 ms\n  type \"a\" @40ms/char                 10.52 ms\n  type \"note 1\" @150ms/char           19.13 ms\n  type \"note 1\" @40ms/char            15.79 ms\n  key navigation x40                  25.86 ms\n  image preview (cold)                24.86 ms\n  code preview, first language use    50.19 ms\n  code preview, language switch       16.13 ms\n  copy 5 MB entry                     10.75 ms\n  favicon refresh                     15.66 ms\n  search while OCR save is locked     15.94 ms\n",
+  "cancellation_tests_log": "   Compiling rsclip-ui v0.1.24 (/home/radhey/random/rsclip/crates/rsclip-ui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.96s\n     Running unittests src/main.rs (target/debug/deps/rsclip-f15a4f80cc291389)\n\nrunning 3 tests\ntest events::tests::perf_search_input_latency_budget ... ok\ntest events::tests::worker_applies_writes_before_following_list_request ... ok\nobsolete scan cancelled in 6.60 ms\ntest events::tests::superseded_scan_stops_early_and_leaves_following_writes_and_reads_usable ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 44 filtered out; finished in 0.05s\n\n",
+  "validation": {
+    "default_member_suite": {
+      "command": "RSCLIP_REQUIRE_HEADLESS_UI=1 cargo test --locked",
+      "exit_code": 0,
+      "core_tests": 112,
+      "daemon_tests": 10,
+      "ui_unit_tests": 47,
+      "headless_integration": "passed",
+      "log": "   Compiling rsclip-ui v0.1.24 (/home/radhey/random/rsclip/crates/rsclip-ui)\n    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.56s\n     Running unittests src/lib.rs (target/debug/deps/rsclip_core-5759b2ad3e1def3f)\n\nrunning 112 tests\ntest classify::tests::classifies_bare_domain_as_text ... ok\ntest classify::tests::classifies_color ... ok\ntest classify::tests::classifies_gnome_copy_payload_as_file ... ok\ntest classify::tests::classifies_link ... ok\ntest classify::tests::classifies_token_shaped_https_value_as_text ... ok\ntest classify::tests::classifies_gnome_cut_payload_as_copyable_file ... ok\ntest classify::tests::classifies_uri_list_as_file ... ok\ntest classify::tests::invalid_uri_list_falls_back_to_text_classification ... ok\ntest classify::tests::preview_normalizes_unicode_whitespace ... ok\ntest classify::tests::truncates_at_unicode_character_boundary ... ok\ntest cli::tests::parses_code_filter ... ok\ntest cli::tests::parses_files_filter ... ok\ntest cli::tests::parses_list_defaults ... ok\ntest cli::tests::parses_list_overrides ... ok\ntest cli::tests::parses_option_values_and_flags ... ok\ntest cli::tests::parses_positional_ids ... ok\ntest cli::tests::writes_plain_entries ... ok\ntest cli::tests::writes_code_entries_with_detected_language ... ok\ntest colors::tests::parses_hex_shorthand ... ok\ntest colors::tests::parses_rgb ... ok\ntest colors::tests::parses_rgba_as_rgb ... ok\ntest config::tests::empty_config_file_returns_defaults ... ok\ntest config::tests::missing_config_file_returns_defaults ... ok\ntest config::tests::invalid_toml_returns_error_with_path_context ... ok\ntest config::tests::history_max_entries_parses ... ok\ntest config::tests::links_favicon_cache_parses_true ... ok\ntest config::tests::theme_defaults_to_nonchalant_dark ... ok\ntest config::tests::partial_colors_only_override_provided_fields ... ok\ntest config::tests::zero_history_byte_limits_explicitly_select_unlimited_payloads ... ok\ntest config::tests::paste_ocr_and_ui_options_parse ... ok\ntest classify::tests::bounds_preview_for_large_multiline_text ... ok\ntest db::tests::cleanup_soft_deletes_only_old_unpinned_entries ... ok\ntest db::tests::entry_summaries_omit_text_payload_but_remain_searchable ... ok\ntest db::tests::file_filter_returns_only_file_entries ... ok\ntest db::tests::database_entry_secret_and_ocr_smoke_test ... ok\ntest db::tests::code_and_text_filter_distinction ... ok\ntest db::tests::entry_text_tracks_inserts_updates_and_bounds_payloads ... ok\ntest db::tests::query_plans_use_indexes_without_temp_btree_for_all_sort_modes ... ok\ntest db::tests::migration_v4_backfills_entry_text_and_code_languages ... ok\ntest db::tests::search_and_filter_sql_never_touch_full_text_payload ... ok\ntest db::tests::migration_repairs_generated_https_links_from_bare_text ... ok\ntest db::tests::migration_v5_moves_payload_last_and_preserves_everything ... ok\ntest favicons::tests::cache_paths_point_under_favicon_dirs ... ok\ntest favicons::tests::clear_cache_removes_icons_misses_and_queue_entries ... ok\ntest favicons::tests::domain_cache_key_is_stable ... ok\ntest favicons::tests::enqueue_domain_creates_queue_json_and_is_idempotent ... ok\ntest favicons::tests::should_enqueue_is_false_when_icon_exists ... ok\ntest favicons::tests::should_enqueue_is_false_when_miss_exists ... ok\ntest db::tests::migration_adds_columns_to_existing_database ... ok\ntest files::tests::bounded_parse_caps_scanned_lines_on_non_uri_payload ... ok\ntest files::tests::bounded_parse_handles_empty_payload ... ok\ntest files::tests::bounded_parse_returns_all_when_within_bounds ... ok\ntest files::tests::bounded_parse_truncates_bytes_at_line_boundary ... ok\ntest files::tests::counts_missing_paths ... ok\ntest files::tests::ignores_comments_and_blank_lines ... ok\ntest files::tests::normalizes_plain_absolute_paths_or_file_uris ... ok\ntest files::tests::normalizes_to_crlf_file_uri_lines ... ok\ntest files::tests::parses_lf_and_crlf_uri_lists ... ok\ntest files::tests::percent_decodes_paths ... ok\ntest files::tests::previews_newline_separated_paths ... ok\ntest files::tests::produces_single_and_multi_file_titles ... ok\ntest files::tests::rejects_non_file_uris ... ok\ntest files::tests::bounded_parse_caps_file_count_and_reports_truncation ... ok\ntest format::tests::formats_display_sizes ... ok\ntest format::tests::masks_secrets ... ok\ntest format::tests::formats_human_bytes ... ok\ntest format::tests::relative_age_matches_the_label ... ok\ntest links::tests::detects_http_url ... ok\ntest links::tests::ignores_bare_domain ... ok\ntest links::tests::detects_known_url ... ok\ntest links::tests::ignores_invalid_token_hostnames ... ok\ntest links::tests::ignores_non_http_schemes ... ok\ntest models::tests::parses_code_filter ... ok\ntest models::tests::parses_file_filter_aliases ... ok\ntest models::tests::parses_sort_modes ... ok\ntest paste::tests::file_entry_without_text_content_returns_clear_error ... ok\ntest paste::tests::file_entry_writes_uri_list_mime_and_bytes ... ok\ntest links::tests::ignores_multi_word_text ... ok\ntest profiler::tests::builds_tree_from_children_first_records ... ok\ntest secrets::tests::chooses_default_secret_alias ... ok\ntest secrets::tests::extracts_image_ocr_but_rejects_non_text_entries ... ok\ntest secrets::tests::extracts_text_like_secret_values ... ok\ntest profiler::tests::profiler_phases_and_display ... ok\ntest secrets::tests::normalizes_secret_alias ... ok\ntest secrets::tests::summary_check_defers_truncated_text_to_the_full_entry ... ok\ntest syntax::tests::c_comments_disqualify_python ... ok\ntest syntax::tests::detects_binary_search_python_snippet ... ok\ntest syntax::tests::detects_diff ... ok\ntest syntax::tests::detects_c_and_cpp_syntax ... ok\ntest syntax::tests::detects_dockerfile ... ok\ntest syntax::tests::detects_go_syntax ... ok\ntest syntax::tests::detects_dijkstra_rust_snippet ... ok\ntest syntax::tests::detects_html ... ok\ntest syntax::tests::detects_json ... ok\ntest syntax::tests::detects_python_syntax ... ok\ntest syntax::tests::detects_shebang_python ... ok\ntest syntax::tests::detects_rust_syntax ... ok\ntest syntax::tests::detects_shebang_shell ... ok\ntest syntax::tests::plain_text_is_not_detected_as_code ... ok\ntest syntax::tests::detects_typescript_syntax ... ok\ntest syntax::tests::short_rust_function_detected ... ok\ntest syntax::tests::short_python_function_detected ... ok\ntest db::tests::upsert_conflict_keeps_code_language ... ok\ntest db::tests::entry_summaries_bound_legacy_payloads_without_changing_search_or_full_rows ... ok\ntest db::tests::search_with_huge_payload_stays_bounded_in_time ... ok\ntest db::tests::list_entries_honors_large_requested_limit ... ok\ntest db::tests::search_with_thousands_of_entries_stays_fast ... ok\ntest db::tests::code_and_text_filters_stay_fast_with_thousands_of_entries ... ok\ntest db::perf_tests::perf_browse_query_plans_avoid_sorts_and_table_scans ... ok\ntest db::perf_tests::perf_hot_path_queries_meet_budget ... ok\ntest db::perf_tests::perf_hot_paths_do_not_scale_with_payload_size ... ok\ntest db::perf_tests::perf_storing_entries_meets_budget ... ok\n\ntest result: ok. 112 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.14s\n\n     Running unittests src/main.rs (target/debug/deps/rsclipd-ea932de03fa02668)\n\nrunning 10 tests\ntest commands::store::tests::payload_limits_preserve_zero_as_the_unlimited_sentinel ... ok\ntest commands::store::tests::payload_limits_select_the_matching_positive_limit ... ok\ntest favicons::tests::rejects_non_public_favicon_domains ... ok\ntest commands::favicons::tests::clear_paths_clears_temp_favicon_directory ... ok\ntest favicons::tests::invalid_image_creates_miss ... ok\ntest favicons::tests::unsupported_svg_only_page_creates_miss ... ok\ntest favicons::tests::oversized_image_response_creates_miss ... ok\ntest commands::favicons::tests::refresh_paths_queues_stored_link_domains ... ok\ntest favicons::tests::favicon_ico_success_saves_png ... ok\ntest favicons::tests::html_discovery_with_relative_icon_saves_png ... ok\n\ntest result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s\n\n     Running unittests src/main.rs (target/debug/deps/rsclip-dba290a0ea714618)\n\nrunning 47 tests\ntest actions::refresh::tests::fetched_window_covers_scrolled_viewport ... ok\ntest actions::refresh::tests::result_window_is_bounded_for_large_history ... ok\ntest actions::refresh::tests::requested_start_is_clamped_to_last_full_window ... ok\ntest actions::refresh::tests::result_window_never_exceeds_total ... ok\ntest actions::refresh::tests::rebuild_reuses_rows_still_listed_by_a_new_query ... ok\ntest actions::refresh::tests::row_shift_handles_entry_inserted_at_top ... ok\ntest actions::refresh::tests::row_shift_rebuilds_when_windows_do_not_line_up ... ok\ntest actions::refresh::tests::scrolling_inside_the_loaded_window_does_not_reload ... ok\ntest actions::refresh::tests::window_index_clamps_after_deleting_last_entry ... ok\ntest actions::refresh::tests::window_index_clamps_into_rendered_window ... ok\ntest actions::refresh::tests::window_index_handles_saturating_edge ... ok\ntest actions::refresh::tests::row_shift_reuses_overlap_when_scrolling ... ok\ntest actions::refresh::tests::window_selection_preserves_live_selection_within_window ... ok\ntest actions::selection::tests::down_arrow_at_last_row_does_not_move ... ok\ntest actions::selection::tests::empty_count_returns_none ... ok\ntest actions::selection::tests::moving_within_bounds_succeeds ... ok\ntest actions::selection::tests::no_selection_initializes_to_first_or_last ... ok\ntest actions::selection::tests::up_arrow_at_first_row_does_not_move ... ok\ntest cli::tests::parses_empty_args_as_show ... ok\ntest actions::refresh::tests::fetched_window_always_contains_navigation_target ... ok\ntest cli::tests::parses_help_aliases ... ok\ntest cli::tests::parses_list_passthrough ... ok\ntest cli::tests::parses_preload ... ok\ntest cli::tests::parses_quit_ui ... ok\ntest cli::tests::parses_show ... ok\ntest cli::tests::parses_toggle ... ok\ntest cli::tests::rejects_unknown_command ... ok\ntest components::list::tests::plain_text_entry_resolves_text_icon_and_label ... ok\ntest components::preview::tests::binary_payload_shows_binary_notice ... ok\ntest components::list::tests::text_entry_with_code_resolves_language_icon_and_label ... ok\ntest components::preview::tests::perf_preview_bounds_stay_small ... ok\ntest components::preview::tests::long_line_is_cut_and_marked_but_following_lines_survive ... ok\ntest components::preview::tests::preview_within_bounds_is_borrowed_unchanged ... ok\ntest components::preview::tests::preview_is_bounded_on_utf8_boundary ... ok\ntest events::tests::perf_search_input_latency_budget ... ok\ntest style::tests::background_opacity_overrides_shell_alpha ... ok\ntest style::tests::invalid_background_opacity_returns_offending_key ... ok\ntest style::tests::missing_colors_fall_back_to_defaults ... ok\ntest style::tests::invalid_color_returns_offending_key ... ok\ntest style::tests::validates_supported_color_formats ... ok\ntest style::tests::overridden_colors_appear_in_generated_css ... ok\ntest style::tests::css_generation_includes_every_color_definition ... ok\ntest components::preview::tests::perf_preview_text_stays_within_layout_bounds ... ok\ntest highlight::tests::sourceview_languages_scheme_and_buffer ... ok\ntest actions::refresh::tests::perf_key_repeat_through_history_builds_each_row_about_once ... ok\ntest events::tests::worker_applies_writes_before_following_list_request ... ok\ntest events::tests::superseded_scan_stops_early_and_leaves_following_writes_and_reads_usable ... ok\n\ntest result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s\n\n     Running tests/headless_ui_perf.rs (target/debug/deps/headless_ui_perf-bd19729d03988852)\n\n(process:378806): Gtk-WARNING **: 12:14:19.210: Unable to acquire session bus: Cannot autolaunch D-Bus without X11 $DISPLAY\nit appears your Wayland compositor does not support the Session Lock protocol\n\n** (process:378806): WARNING **: 12:14:19.211: Failed to initialize layer surface, it appears your Wayland compositor doesn't support Layer Shell\nstartup from gtk::init: init 1.25 ms, register 18.95 ms, build 5.88 ms, show 6.32 ms, first rows Some(54.784855) ms, first after-paint Some(51.276849999999996) ms, worst dispatch 35.22 ms\nsearch latency \"qxbase\": applied 13.98 ms, painted 38.96 ms, worst dispatch 15.89 ms\nsearch latency \"note 1\": applied 14.80 ms, painted 39.72 ms, worst dispatch 19.39 ms\nsearch latency \"zzqqxx-no-match\": applied 13.19 ms, painted 31.99 ms, worst dispatch 10.98 ms\nsearch latency \"site\": applied 15.99 ms, painted 40.80 ms, worst dispatch 20.25 ms\nsearch latency \"a\": applied 16.26 ms, painted 42.75 ms, worst dispatch 20.07 ms\nlanguage preview round 0: Some(Python), sync 11.78 ms, worst 16.93 ms\nlanguage preview round 0: Some(Markdown), sync 55.54 ms, worst 55.54 ms\nlanguage preview round 0: Some(Rust), sync 1.00 ms, worst 14.84 ms\nlanguage preview round 0: Some(C), sync 7.49 ms, worst 15.33 ms\nlanguage preview round 0: Some(Html), sync 50.45 ms, worst 50.45 ms\nlanguage preview round 1: Some(Python), sync 0.91 ms, worst 15.96 ms\nlanguage preview round 1: Some(Markdown), sync 0.81 ms, worst 16.13 ms\nlanguage preview round 1: Some(Rust), sync 1.07 ms, worst 15.21 ms\nlanguage preview round 1: Some(C), sync 0.99 ms, worst 15.17 ms\nlanguage preview round 1: Some(Html), sync 0.90 ms, worst 15.39 ms\nlanguage preview round 2: Some(Python), sync 0.94 ms, worst 15.84 ms\nlanguage preview round 2: Some(Markdown), sync 0.85 ms, worst 16.71 ms\nlanguage preview round 2: Some(Rust), sync 1.13 ms, worst 16.01 ms\nlanguage preview round 2: Some(C), sync 1.03 ms, worst 14.95 ms\nlanguage preview round 2: Some(Html), sync 0.83 ms, worst 16.30 ms\nworker integration: bounded preview, stale response, secret search/rename/delete, and OCR lock contention passed\n\nworst GTK main-loop dispatch per scenario (budget 100 ms)\n  startup dispatch                    35.22 ms\n  type \"qxbase\" @150ms/char           15.56 ms\n  type \"qxbase\" @40ms/char            14.54 ms\n  type \"qxjson\" @150ms/char           14.08 ms\n  type \"qxjson\" @40ms/char            14.59 ms\n  type \"qxlog\" @150ms/char            15.12 ms\n  type \"qxlog\" @40ms/char             14.05 ms\n  type \"qxcode\" @150ms/char           21.60 ms\n  type \"qxcode\" @40ms/char            14.20 ms\n  type \"qxhuge\" @150ms/char           11.81 ms\n  type \"qxhuge\" @40ms/char            11.94 ms\n  type \"a\" @150ms/char                10.87 ms\n  type \"a\" @40ms/char                 10.71 ms\n  type \"note 1\" @150ms/char           20.58 ms\n  type \"note 1\" @40ms/char            15.76 ms\n  key navigation x40                  30.65 ms\n  image preview (cold)                22.95 ms\n  code preview, first language use    55.54 ms\n  code preview, language switch       16.71 ms\n  copy 5 MB entry                     10.88 ms\n  favicon refresh                     17.81 ms\n  search while OCR save is locked     15.99 ms\n   Doc-tests rsclip_core\n\nrunning 0 tests\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n"
+    },
+    "strict_clippy": {
+      "command": "cargo clippy -p rsclip-ui --all-targets --locked -- -D warnings",
+      "exit_code": 0,
+      "log": "    Checking rsclip-ui v0.1.24 (/home/radhey/random/rsclip/crates/rsclip-ui)\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.90s\n"
+    },
+    "highlighting_limit": {
+      "initial_debug_failure_ms": 173.16,
+      "exploratory_release_outlier_ms": 88.97,
+      "final_debug_first_language_ms": 55.54,
+      "budget_ms": 100,
+      "resolution": "Unresolved. Removing forced keepalive highlighting did not reduce synchronous grammar setup and was reverted."
+    },
+    "scope": "Default members only; optional Indra crate and native Niri/clipboard behavior not validated."
+  }
+}

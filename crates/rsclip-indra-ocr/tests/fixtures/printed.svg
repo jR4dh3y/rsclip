@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="320">
+  <rect width="1000" height="320" fill="white"/>
+  <g font-family="DejaVu Sans" font-size="40" fill="black">
+    <text x="50" y="85">Native Rust OCR</text>
+    <text x="50" y="155">The quick brown fox jumps over the lazy dog.</text>
+    <text x="50" y="225">Clipboard text 1234567890</text>
+  </g>
+</svg>

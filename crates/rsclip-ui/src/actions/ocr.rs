@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use anyhow::{Context, Result};
 use gtk4::prelude::*;
-use rsclip_core::EntryData;
 use rsclip_core::ocr::run_tesseract_with_options;
+use rsclip_core::{ClipboardEntry, Database, EntryData};
 
 use crate::actions::set_footer;
 use crate::components::preview::render_preview;
@@ -19,14 +19,7 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
         anyhow::bail!("OCR is disabled in config");
     }
 
-    let entry = state
-        .db
-        .get_entry(entry_id)?
-        .with_context(|| format!("entry {entry_id} not found"))?;
-    let image_path = match &entry.data {
-        EntryData::Image { file_path, .. } => file_path.clone(),
-        _ => anyhow::bail!("entry is not an image"),
-    };
+    let db_path = state.db_path.clone();
     let language = state.ocr_language.borrow().clone();
     let command = state.ocr_command.borrow().clone();
     let timeout_seconds = state.ocr_timeout_seconds.get();
@@ -38,14 +31,27 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
     gtk4::glib::spawn_future_local(async move {
         let ocr_language = language.clone();
         let result = gio::spawn_blocking(move || {
-            run_tesseract_with_options(&image_path, &ocr_language, &command, timeout_seconds)
+            let db = Database::open(&db_path)?;
+            let entry = db
+                .get_entry(entry_id)?
+                .context("OCR entry no longer exists")?;
+            let EntryData::Image { file_path, .. } = &entry.data else {
+                anyhow::bail!("entry is not an image");
+            };
+            let text =
+                run_tesseract_with_options(file_path, &ocr_language, &command, timeout_seconds)?;
+            db.save_ocr_result(entry_id, &ocr_language, &text)?;
+            db.get_entry(entry_id)?
+                .context("entry no longer exists after OCR")
         })
         .await
-        .unwrap_or_else(|_| Err(anyhow::anyhow!("OCR worker panicked")))
-        .and_then(|text| finish_ocr(&state, entry_id, &language, &text));
+        .unwrap_or_else(|_| Err(anyhow::anyhow!("OCR worker panicked")));
 
         match result {
-            Ok(()) => set_footer(&state, "OCR complete"),
+            Ok(updated) => {
+                finish_ocr(&state, updated);
+                set_footer(&state, "OCR complete");
+            }
             Err(err) => {
                 set_footer(&state, &format!("OCR failed: {err:#}"));
                 if state.currently_previewed_entry_id.get() == Some(entry_id) {
@@ -57,12 +63,8 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
     Ok(())
 }
 
-fn finish_ocr(state: &Rc<AppState>, entry_id: i64, language: &str, text: &str) -> Result<()> {
-    state.db.save_ocr_result(entry_id, language, text)?;
-    let updated = state
-        .db
-        .get_entry(entry_id)?
-        .with_context(|| format!("entry {entry_id} not found after OCR"))?;
+fn finish_ocr(state: &Rc<AppState>, updated: ClipboardEntry) {
+    let entry_id = updated.id;
     if let Some(slot) = state
         .entries
         .borrow_mut()
@@ -76,5 +78,4 @@ fn finish_ocr(state: &Rc<AppState>, entry_id: i64, language: &str, text: &str) -
         crate::state::invalidate_preview_cache(state);
         render_preview(state, &updated);
     }
-    Ok(())
 }

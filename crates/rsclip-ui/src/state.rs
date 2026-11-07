@@ -1,7 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 
 use anyhow::Context;
 use gtk::prelude::*;
@@ -229,40 +230,53 @@ pub(crate) struct CopyResponse {
     pub(crate) result: Result<(), String>,
 }
 
+/// Bounded preview reads use their own worker so searches and copies cannot
+/// delay the selected entry's text.
+pub(crate) struct PreviewRequest {
+    pub(crate) entry: ClipboardEntry,
+    pub(crate) generation: u64,
+}
+
+pub(crate) struct PreviewResponse {
+    pub(crate) request: PreviewRequest,
+    pub(crate) text: Result<Option<String>, String>,
+}
+
 /// Worker output: the newest list result and/or failures of writes applied
 /// before it (reported after the list renders so its footer cannot hide
-/// them), or a finished copy from the copy worker.
+/// them), a finished copy, or a bounded preview read.
 pub(crate) struct WorkerResponse {
     pub(crate) list: Option<ListResponse>,
     pub(crate) copy: Option<CopyResponse>,
+    pub(crate) preview: Option<PreviewResponse>,
     pub(crate) write_error: Option<String>,
 }
 
 /// Persistent preview widget channels. Content is re-filled per selection;
 /// the widget trees themselves are never torn down, so keypresses avoid
 /// widget-tree and Pango-layout rebuild costs.
-/// Bumped on every preview render (clipboard or secret). Deferred preview
-/// upgrades capture it and abort when it changes, so a slow upgrade can never
-/// land on a selection the user has already left.
 pub(crate) struct PreviewChannels {
     /// Plain-text preview: one TextView whose buffer is re-filled per selection.
     pub(crate) text: gtk::ScrolledWindow,
     pub(crate) text_buffer: gtk::TextBuffer,
-    /// Syntax-highlighted preview: persistent sourceview View/Buffer pair so
-    /// the highlighting engine's per-buffer analysis cache stays warm.
-    pub(crate) code: gtk::ScrolledWindow,
-    pub(crate) code_buffer: sourceview5::Buffer,
+    /// Build GtkSourceView only when the user first selects code.
+    pub(crate) code: OnceCell<CodePreview>,
+}
+
+pub(crate) struct CodePreview {
+    pub(crate) scroller: gtk::ScrolledWindow,
+    pub(crate) buffer: sourceview5::Buffer,
 }
 
 pub(crate) struct AppState {
-    /// Long-lived connection for writes and explicit full-entry reads.
-    pub(crate) db: Database,
+    pub(crate) db_path: PathBuf,
     pub(crate) list_request_tx: mpsc::Sender<WorkerRequest>,
     pub(crate) list_response_rx: mpsc::Receiver<WorkerResponse>,
-    pub(crate) list_generation: Cell<u64>,
+    pub(crate) list_generation: Arc<AtomicU64>,
     /// Identifies the currently visible overlay presentation.
     pub(crate) overlay_generation: Cell<u64>,
     pub(crate) copy_request_tx: mpsc::Sender<CopyRequest>,
+    pub(crate) preview_request_tx: mpsc::Sender<PreviewRequest>,
     /// Bumped by every clipboard write and by hiding the overlay. A queued
     /// paste only fires while it still matches, so it can never paste a
     /// later copy's value or into a session the user already closed.
@@ -325,9 +339,10 @@ pub(crate) struct AppState {
 
 /// Invalidate queued and in-flight list work before changing its context.
 pub(crate) fn advance_list_generation(state: &AppState) -> u64 {
-    let generation = state.list_generation.get().wrapping_add(1);
-    state.list_generation.set(generation);
-    generation
+    state
+        .list_generation
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1)
 }
 
 /// Invalidate any pending paste; returns the new serial.

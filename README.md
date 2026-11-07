@@ -222,6 +222,10 @@ timeout_seconds = 20
 auto_index = false
 ```
 
+For Python-free Indra OCR through Rust ONNX Runtime bindings, install the optional
+[`rsclip-ocr` backend](crates/rsclip-indra-ocr/README.md) and set
+`command = "rsclip-ocr"`. It uses the same UI, CLI and automatic indexing paths.
+
 The resident UI also supports geometry and behavior settings:
 
 ```toml
@@ -291,7 +295,15 @@ hit before. `scripts/build-release-archive.sh` and CI run them on every build.
   slow down when 48 MB of legacy payloads are added.
 - `rsclip-ui`: holding an arrow key through 5,000 entries never strands the
   selection outside the loaded window, reloads stay rare, and each row is built
-  about once. Search starts at most 100 ms after the last keystroke.
+  about once. Search has an 8 ms debounce with a 16 ms configured-delay budget.
+  Obsolete scans cancel cooperatively without interrupting ordered writes.
+
+The UI opens SQLite and reads text previews on background workers. Its first
+list is smaller than the scrolling window, and GtkSourceView is created on
+first code selection. The headless UI harness reports startup and query-to-paint
+timings, checks stale previews, and exercises search during an OCR write lock.
+Run it with `cargo test --release -p rsclip-ui --test headless_ui_perf`.
+For measured improvements and remaining stalls, see [the hillclimb results](PERFORMANCE-RESULTS.md).
 
 Print every measured timing:
 

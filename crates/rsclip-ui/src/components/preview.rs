@@ -12,12 +12,11 @@ use sourceview5::prelude::*;
 
 use crate::components::details::{render_details, render_secret_details};
 use crate::components::labels::{muted_label, section_label};
-use crate::state::{AfterCopy, AppState, CopySource};
+use crate::state::{AfterCopy, AppState, CopySource, PreviewRequest, PreviewResponse};
 
 /// Bytes of an entry that previews read. The first 64 KiB of every text entry
 /// sits in the `entry_text` side table, so reads within this bound stay cheap
-/// even for legacy multi-megabyte rows; larger summaries upgrade after the
-/// keypress instead of blocking it.
+/// even for legacy multi-megabyte rows. Text reads run on the preview worker.
 pub(crate) const MAX_PREVIEW_READ_BYTES: usize = 64 * 1024;
 /// Bounds for text shown in the preview `TextView`, which lays out and paints
 /// on the GTK thread. Pango wraps a paragraph as one unit, so a single long
@@ -85,9 +84,20 @@ pub(crate) fn build_panel() -> PreviewPanel {
         .child(&text_view)
         .build();
 
-    // Code preview channel: persistent sourceview View/Buffer pair. Reuse
-    // keeps the highlighting engine's per-buffer analysis cache warm.
-    let code_buffer = crate::highlight::setup_source_buffer("", CodeLanguage::Rust);
+    PreviewPanel {
+        shell,
+        preview,
+        details,
+        channels: crate::state::PreviewChannels {
+            text: text_scroller,
+            text_buffer,
+            code: std::cell::OnceCell::new(),
+        },
+    }
+}
+
+fn build_code_channel(language: CodeLanguage) -> crate::state::CodePreview {
+    let code_buffer = crate::highlight::setup_source_buffer("", language);
     let code_view = crate::highlight::create_source_view(&code_buffer);
     let code_scroller = gtk::ScrolledWindow::builder()
         .min_content_height(80)
@@ -97,16 +107,9 @@ pub(crate) fn build_panel() -> PreviewPanel {
         .child(&code_view)
         .build();
 
-    PreviewPanel {
-        shell,
-        preview,
-        details,
-        channels: crate::state::PreviewChannels {
-            text: text_scroller,
-            text_buffer,
-            code: code_scroller,
-            code_buffer,
-        },
+    crate::state::CodePreview {
+        scroller: code_scroller,
+        buffer: code_buffer,
     }
 }
 
@@ -216,36 +219,27 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         .set_opacity(if can_ocr { 1.0 } else { 0.0 });
     state.ocr_button.set_sensitive(can_ocr);
 
-    // Summary rows omit text payloads; small ones re-read inline (sub-
-    // millisecond). A summary whose payload exceeds the preview cap would
-    // block the keypress with a multi-millisecond read of a huge row: render
-    // the snippet now and let the deferred upgrade do the single full read.
-    let (full, defer_full_read) = match &entry.data {
-        EntryData::Text | EntryData::Unknown | EntryData::File { .. } => {
-            let huge_summary =
-                entry.text_content.is_none() && entry.size_bytes > MAX_PREVIEW_READ_BYTES as i64;
-            if huge_summary {
-                (entry.clone(), true)
-            } else {
-                (full_entry_for_preview(state, entry), false)
-            }
-        }
-        _ => (entry.clone(), false),
-    };
+    // Show the summary immediately. Even a bounded SQLite read can block on
+    // cold storage; the preview worker upgrades it without holding GTK.
+    let defer_full_read = entry.text_content.is_none()
+        && matches!(
+            entry.data,
+            EntryData::Text | EntryData::Unknown | EntryData::File { .. }
+        );
 
-    match &full.data {
-        EntryData::Image { .. } => render_image_preview(state, &full),
+    match &entry.data {
+        EntryData::Image { .. } => render_image_preview(state, entry),
         EntryData::Color { value, .. } => render_color_preview(state, value),
         EntryData::Link { url, .. } => {
             render_text_preview_state(state, Some(url));
         }
-        EntryData::File { .. } => render_file_preview(state, &full),
+        EntryData::File { .. } => render_file_preview(state, entry),
         EntryData::Text | EntryData::Unknown => {
-            let content = full
+            let content = entry
                 .text_content
                 .as_deref()
-                .or(full.preview_text.as_deref());
-            if content.is_none() && matches!(full.data, EntryData::Unknown) {
+                .or(entry.preview_text.as_deref());
+            if content.is_none() && matches!(entry.data, EntryData::Unknown) {
                 render_text_preview_state(state, Some(BINARY_PREVIEW_NOTICE));
             } else {
                 render_text_or_code_preview(state, content);
@@ -256,7 +250,7 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     if let EntryData::Image {
         ocr_text: Some(ocr),
         ..
-    } = &full.data
+    } = &entry.data
         && !ocr.is_empty()
     {
         render_ocr_header(state, ocr);
@@ -264,10 +258,13 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     }
 
     if defer_full_read {
-        schedule_preview_upgrade(state, full.clone(), generation);
+        let _ = state.preview_request_tx.send(PreviewRequest {
+            entry: entry.clone(),
+            generation,
+        });
     }
 
-    render_details(&state.details, &full);
+    render_details(&state.details, entry);
     rsclip_core::profiler::end_phase("render_preview");
     if rsclip_core::profiler::enabled() {
         rsclip_core::profiler::print_report();
@@ -280,7 +277,7 @@ pub(crate) fn clear_preview_state(state: &Rc<AppState>) {
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
     state.channels.text_buffer.set_text("");
-    state.channels.code_buffer.set_text("");
+    clear_code_buffer(state);
     state.ocr_button.set_opacity(0.0);
     state.ocr_button.set_sensitive(false);
 }
@@ -567,37 +564,6 @@ fn render_ocr_header(state: &Rc<AppState>, ocr: &str) {
     state.preview.append(&header);
 }
 
-/// Re-read one entry from SQLite so previews can show the full payload.
-///
-/// Falls back to the summary row when the entry vanished or the read failed.
-fn full_entry_for_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> ClipboardEntry {
-    if entry.text_content.is_some() {
-        return entry.clone();
-    }
-
-    rsclip_core::profiler::begin_phase("query_full_entry");
-    let result = with_preview_text(state, entry).unwrap_or_else(|| entry.clone());
-    rsclip_core::profiler::end_phase("query_full_entry");
-    result
-}
-
-/// The summary row with its text replaced by the bounded preview body.
-///
-/// Only the capped body is read (the preview truncates at
-/// MAX_PREVIEW_BYTES anyway); every other field already came with the
-/// summary, so a legacy multi-megabyte row never stalls the GTK thread.
-/// Copying still uses the full row via Database::get_entry.
-fn with_preview_text(state: &Rc<AppState>, entry: &ClipboardEntry) -> Option<ClipboardEntry> {
-    let text = state
-        .db
-        .get_text_preview(entry.id, MAX_PREVIEW_BYTES + 1)
-        .ok()
-        .flatten()?;
-    let mut full = entry.clone();
-    full.text_content = Some(text);
-    Some(full)
-}
-
 fn is_binary_payload(text: &str) -> bool {
     text.as_bytes().contains(&0)
 }
@@ -611,47 +577,21 @@ fn sanitize_preview_text(text: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-/// Upgrade a just-rendered summary preview to its full content after the fact.
-///
-/// Rows whose payload exceeds the preview cap would block the keypress with a
-/// multi-millisecond SQLite read; instead the keypress renders the snippet and
-/// this idle performs the single capped read, re-rendering full content. The
-/// upgrade aborts when the selection moved before it runs, so a slow read can
-/// never land on a stale selection.
-fn schedule_preview_upgrade(state: &Rc<AppState>, entry: ClipboardEntry, generation: u64) {
-    let state = Rc::clone(state);
-    gtk::glib::idle_add_local_once(move || {
-        let current = state.currently_previewed_entry_id.get();
-        if current != Some(entry.id) || generation != state.preview_generation.get() {
-            return;
-        }
-        let Some(full) = with_preview_text(&state, &entry) else {
-            return;
-        };
-        match &full.data {
-            EntryData::Text | EntryData::Unknown => {
-                let content = full
-                    .text_content
-                    .as_deref()
-                    .or(full.preview_text.as_deref());
-                if let Some(content) = content {
-                    for channel in [&state.channels.text, &state.channels.code] {
-                        if channel.parent().as_ref()
-                            == Some(state.preview.upcast_ref::<gtk::Widget>())
-                        {
-                            state.preview.remove(channel);
-                        }
-                    }
-                    if let Some(lang) = rsclip_core::syntax::detect_code_language(content) {
-                        render_code_preview(&state, content, lang);
-                    } else {
-                        render_text_preview_state(&state, Some(content));
-                    }
-                }
-            }
-            _ => {}
-        }
-    });
+/// A background read may finish after selection, view, or content changed.
+pub(crate) fn apply_preview_response(state: &Rc<AppState>, response: PreviewResponse) {
+    let PreviewResponse { request, text } = response;
+    if state.currently_previewed_entry_id.get() != Some(request.entry.id)
+        || state.preview_generation.get() != request.generation
+    {
+        return;
+    }
+    let Ok(Some(text)) = text else {
+        return;
+    };
+    let mut full = request.entry;
+    full.text_content = Some(text);
+    state.currently_previewed_entry_id.set(None);
+    render_preview(state, &full);
 }
 
 fn render_text_or_code_preview(state: &Rc<AppState>, text: Option<&str>) {
@@ -660,8 +600,14 @@ fn render_text_or_code_preview(state: &Rc<AppState>, text: Option<&str>) {
         state.channels.text_buffer.set_text("");
         render_code_preview(state, raw, lang);
     } else {
-        state.channels.code_buffer.set_text("");
+        clear_code_buffer(state);
         render_text_preview_state(state, text);
+    }
+}
+
+fn clear_code_buffer(state: &AppState) {
+    if let Some(code) = state.channels.code.get() {
+        code.buffer.set_text("");
     }
 }
 
@@ -669,7 +615,8 @@ fn render_code_preview(state: &Rc<AppState>, text: &str, lang: rsclip_core::synt
     rsclip_core::profiler::begin_phase("render_code_preview");
     let sanitized = sanitize_preview_text(text);
 
-    let buffer = &state.channels.code_buffer;
+    let code = state.channels.code.get_or_init(|| build_code_channel(lang));
+    let buffer = &code.buffer;
     // Bound the highlight work: only payloads within the bound get the
     // context-engine parse; larger ones stay plain monospace, so their
     // language definition is never loaded at all.
@@ -684,9 +631,9 @@ fn render_code_preview(state: &Rc<AppState>, text: &str, lang: rsclip_core::synt
     buffer.set_text(&sanitized);
     buffer.set_highlight_syntax(highlight);
 
-    state.channels.code.vadjustment().set_value(0.0);
-    state.channels.code.hadjustment().set_value(0.0);
-    state.preview.append(&state.channels.code);
+    code.scroller.vadjustment().set_value(0.0);
+    code.scroller.hadjustment().set_value(0.0);
+    state.preview.append(&code.scroller);
     rsclip_core::profiler::end_phase("render_code_preview");
 }
 

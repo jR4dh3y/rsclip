@@ -3,7 +3,9 @@ members = [
   "crates/rsclip-core",
   "crates/rsclip-daemon",
   "crates/rsclip-ui",
+  "crates/rsclip-indra-ocr",
 ]
+default-members = ["crates/rsclip-core", "crates/rsclip-daemon", "crates/rsclip-ui"]
 resolver = "2"
 
 [workspace.package]
@@ -21,7 +23,7 @@ gdk-pixbuf = "0.21"
 glib = "0.21"
 gtk4 = { version = "0.10", features = ["v4_10"] }
 gtk4-layer-shell = { version = "0.7", features = ["v1_3"] }
-rusqlite = { version = "0.37", features = ["bundled", "functions"] }
+rusqlite = { version = "0.37", features = ["bundled", "functions", "hooks"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1"
