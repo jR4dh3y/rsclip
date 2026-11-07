@@ -76,7 +76,7 @@ pub(crate) fn finish_copy(state: &Rc<AppState>, copy: CopyResponse) {
             .and_then(|root| root.downcast::<gtk4::ApplicationWindow>().ok())
     };
     match (copy.result, copy.then) {
-        (Err(err), AfterCopy::Paste) => {
+        (Err(err), AfterCopy::Paste | AfterCopy::PasteNow) => {
             crate::actions::set_footer(state, &format!("Paste failed: {err}"))
         }
         (Err(err), AfterCopy::Hide) => {
@@ -88,7 +88,12 @@ pub(crate) fn finish_copy(state: &Rc<AppState>, copy: CopyResponse) {
         (Ok(()), AfterCopy::Report { done, .. }) => crate::actions::set_footer(state, done),
         (Ok(()), AfterCopy::Paste) => {
             if let Some(window) = window() {
-                crate::window::close_overlay_and_paste(state, &window);
+                crate::window::close_overlay_and_paste(state, &window, false);
+            }
+        }
+        (Ok(()), AfterCopy::PasteNow) => {
+            if let Some(window) = window() {
+                crate::window::close_overlay_and_paste(state, &window, true);
             }
         }
         (Ok(()), AfterCopy::Hide) => {

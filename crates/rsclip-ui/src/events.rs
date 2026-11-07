@@ -490,14 +490,14 @@ fn connect_list_activation(state: &Rc<AppState>) {
     list.connect_row_activated(move |_, row| match *state.view.borrow() {
         AppView::Clipboard => {
             if let Some(entry) = entry_at_row(&state, row)
-                && let Err(err) = queue_entry_copy(&state, entry.id, AfterCopy::Paste)
+                && let Err(err) = queue_entry_copy(&state, entry.id, AfterCopy::PasteNow)
             {
                 set_footer(&state, &format!("Paste failed: {err:#}"));
             }
         }
         AppView::Secrets => {
             if let Some(secret) = secret_at_row(&state, row)
-                && let Err(err) = queue_secret_copy(&state, &secret, AfterCopy::Hide)
+                && let Err(err) = queue_secret_copy(&state, &secret, AfterCopy::PasteNow)
             {
                 set_footer(&state, &format!("Copy failed: {err:#}"));
             }
@@ -625,14 +625,14 @@ fn handle_enter(state: &Rc<AppState>) {
     match *state.view.borrow() {
         AppView::Clipboard => {
             if let Some(entry) = current_entry(state)
-                && let Err(err) = queue_entry_copy(state, entry.id, AfterCopy::Paste)
+                && let Err(err) = queue_entry_copy(state, entry.id, AfterCopy::PasteNow)
             {
                 set_footer(state, &format!("Paste failed: {err:#}"));
             }
         }
         AppView::Secrets => {
             if let Some(secret) = current_secret(state)
-                && let Err(err) = queue_secret_copy(state, &secret, AfterCopy::Hide)
+                && let Err(err) = queue_secret_copy(state, &secret, AfterCopy::PasteNow)
             {
                 set_footer(state, &format!("Copy failed: {err:#}"));
             }

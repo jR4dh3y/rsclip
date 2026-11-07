@@ -149,8 +149,14 @@ impl WriteOp {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AfterCopy {
     /// Close the overlay and paste (Enter, row activation).
+    #[allow(dead_code)]
     Paste,
-    /// Close the overlay without pasting (Enter on a secret).
+    /// Close the overlay and always inject Ctrl+V (explicit Enter action).
+    /// This remains distinct from [`Self::Paste`] so callers that use the
+    /// configurable copy-only behavior can keep it for background actions.
+    PasteNow,
+    /// Close the overlay without injecting a paste (copy-only action).
+    #[allow(dead_code)]
     Hide,
     /// Keep the overlay open and report the copy in the footer.
     Report {

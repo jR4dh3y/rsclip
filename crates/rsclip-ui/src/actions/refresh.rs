@@ -25,6 +25,39 @@ pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     queue_window(state, generation, 0, 0, false, None)
 }
 
+/// Put the currently cached list back at its first row when the overlay is
+/// shown again. Returns `true` when the first row is not cached and a refresh
+/// is needed to materialize it.
+pub(crate) fn reset_list_position(state: &Rc<AppState>) -> bool {
+    state
+        .list_adjustment
+        .set_value(state.list_adjustment.lower());
+
+    let total = current_total(state);
+    if total == 0 {
+        state.pending_selection.set(None);
+        return false;
+    }
+
+    let start = current_start(state);
+    let len = current_len(state);
+    if start > 0 || len == 0 {
+        state.pending_selection.set(Some(0));
+        return true;
+    }
+
+    state.pending_selection.set(None);
+    let row_index = match *state.view.borrow() {
+        AppView::Clipboard => row_index_for_entry(state, 0),
+        AppView::Secrets => row_index_for_secret(state, 0),
+    };
+    if let Some(row) = row_index.and_then(|index| state.list.row_at_index(index)) {
+        state.list.select_row(Some(&row));
+        schedule_preview_for_current_selection(state);
+    }
+    false
+}
+
 pub(crate) fn refresh_entries_preserving_selection(state: &Rc<AppState>) -> Result<()> {
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
     refresh_entries_at_index(state, selected_index)

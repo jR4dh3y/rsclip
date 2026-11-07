@@ -156,8 +156,8 @@ The resident GTK overlay supports keyboard navigation and shortcuts:
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch between Clipboard and Secrets view |
-| `Enter` | Paste entry (Clipboard) / Copy secret (Secrets) and close overlay |
-| `Ctrl+Enter` | Copy entry to clipboard without auto-pasting and close overlay |
+| `Enter` | Paste selected entry or secret into the previously focused app and close overlay |
+| `Ctrl+Enter` | Copy entry to clipboard without pasting and close overlay |
 | `Ctrl+C` | Copy selected entry or secret to clipboard |
 | `Ctrl+P` | Toggle pin on selected clipboard entry |
 | `Ctrl+D` | Delete selected entry or secret (preserves current list position) |
@@ -206,6 +206,10 @@ auto_paste = true
 paste_delay_ms = 140
 method = "wtype"
 ```
+
+The overlay's `Enter` action always restores the selected value and sends
+`Ctrl+V` to the previously focused application. `Ctrl+Enter` and `Ctrl+C`
+remain copy-only actions; `auto_paste` controls the command-line paste flow.
 
 OCR defaults are shared by the UI button and `rsclipd ocr`:
 

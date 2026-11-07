@@ -72,6 +72,21 @@ impl Database {
         Ok(count.max(0) as usize)
     }
 
+    /// Return whether an active secret has exactly this value.
+    ///
+    /// Clipboard writes made by the secrets view pass through `wl-copy`, so
+    /// the daemon's clipboard watcher sees them too. Keeping this check in the
+    /// database lets the watcher discard that echo without copying secret
+    /// material into ordinary history.
+    pub fn has_active_secret_value(&self, value: &str) -> Result<bool> {
+        let found = self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM secrets WHERE deleted = 0 AND value = ?1)",
+            params![value],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(found != 0)
+    }
+
     /// Stores a secret, optionally associating it with an existing clipboard entry.
     pub fn save_secret(
         &self,
@@ -160,5 +175,36 @@ impl Database {
             params![id, now],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::Database;
+
+    #[test]
+    fn active_secret_values_are_detected_but_deleted_values_are_not() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "rsclip-secret-value-test-{}-{suffix}.sqlite",
+            std::process::id()
+        ));
+        let db = Database::open(&path).unwrap();
+        let id = db.save_secret(None, "token", "secret-value").unwrap();
+
+        assert!(db.has_active_secret_value("secret-value").unwrap());
+        assert!(!db.has_active_secret_value("other-value").unwrap());
+
+        db.delete_secret(id).unwrap();
+        assert!(!db.has_active_secret_value("secret-value").unwrap());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 }

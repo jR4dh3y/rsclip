@@ -52,6 +52,11 @@ impl UiRuntime {
         sync_topbar_from_state(&self.state);
         update_mode_controls(&self.state);
 
+        // A hidden overlay keeps its ListBox adjustment and selected row.
+        // Reopening after pasting should start at the first result instead of
+        // reopening at the row that was just used.
+        let top_refresh = crate::actions::refresh::reset_list_position(&self.state);
+
         // A paste still waiting on its delay must not land in the overlay.
         advance_clipboard_serial(&self.state);
         self.window.set_keyboard_mode(KeyboardMode::Exclusive);
@@ -65,7 +70,7 @@ impl UiRuntime {
             AppView::Clipboard => self.state.entries.borrow().is_empty(),
             AppView::Secrets => self.state.secrets.borrow().is_empty(),
         };
-        if needs_refresh || is_empty {
+        if needs_refresh || top_refresh || is_empty {
             refresh_entries_after_present(&self.state);
         }
         Ok(())
@@ -260,10 +265,14 @@ pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow
     }
 }
 
-pub(crate) fn close_overlay_and_paste(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
+pub(crate) fn close_overlay_and_paste(
+    state: &Rc<AppState>,
+    window: &gtk::ApplicationWindow,
+    force_paste: bool,
+) {
     hide_overlay(state, window);
 
-    if state.auto_paste.get() {
+    if force_paste || state.auto_paste.get() {
         let delay = std::time::Duration::from_millis(state.paste_delay_ms.get());
         let method = state.paste_method.borrow().clone();
         let serial = state.clipboard_serial.get();
