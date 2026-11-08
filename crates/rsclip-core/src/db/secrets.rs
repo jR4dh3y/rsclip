@@ -196,6 +196,10 @@ mod tests {
         ));
         let db = Database::open(&path).unwrap();
         let id = db.save_secret(None, "token", "secret-value").unwrap();
+        for index in 0..1_000 {
+            db.save_secret(None, &format!("token-{index}"), &format!("value-{index}"))
+                .unwrap();
+        }
 
         assert!(db.has_active_secret_value("secret-value").unwrap());
         assert!(!db.has_active_secret_value("other-value").unwrap());

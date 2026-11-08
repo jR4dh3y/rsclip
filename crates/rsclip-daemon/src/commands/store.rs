@@ -102,6 +102,8 @@ pub fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Returns whether a text payload is an active saved secret and should be
+/// excluded from ordinary clipboard history.
 fn should_skip_secret_payload(mime_type: &str, payload: &[u8], db: &Database) -> Result<bool> {
     if mime_type != "text/plain" {
         return Ok(false);

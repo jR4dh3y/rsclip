@@ -484,6 +484,8 @@ fn connect_list_selection(state: &Rc<AppState>) {
     });
 }
 
+/// Connect activation so both clipboard entries and secrets follow their
+/// configured post-copy behavior.
 fn connect_list_activation(state: &Rc<AppState>) {
     let list = state.list.clone();
     let state = Rc::clone(state);
@@ -621,6 +623,7 @@ fn set_filter(state: &Rc<AppState>, filter: EntryFilter) {
     }
 }
 
+/// Handle Enter by queueing a paste for clipboard entries and saved secrets.
 fn handle_enter(state: &Rc<AppState>) {
     match *state.view.borrow() {
         AppView::Clipboard => {

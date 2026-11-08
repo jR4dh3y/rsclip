@@ -21,6 +21,10 @@ const WINDOW_PADDING_ROWS: usize = 50;
 
 pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     state.pending_selection.set(None);
+    refresh_entries_with_pending_selection(state)
+}
+
+pub(crate) fn refresh_entries_with_pending_selection(state: &Rc<AppState>) -> Result<()> {
     let generation = crate::state::advance_list_generation(state);
     queue_window(state, generation, 0, 0, false, None)
 }
@@ -782,7 +786,7 @@ fn update_secret_footer(state: &Rc<AppState>) {
     if state.show_footer_hints.get() {
         set_footer(
             state,
-            "Tab: switch tab | Enter: copy | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
+            "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
         );
     } else {
         set_footer(state, "");

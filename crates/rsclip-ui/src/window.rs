@@ -8,7 +8,7 @@ use gtk4 as gtk;
 use rsclip_core::models::{EntryFilter, SortMode};
 use rsclip_core::{AppConfig, Database, RsclipPaths};
 
-use crate::actions::refresh::refresh_entries;
+use crate::actions::refresh::{refresh_entries, refresh_entries_with_pending_selection};
 use crate::actions::update_mode_controls;
 use crate::components::{footer, list, preview, topbar};
 use crate::state::{AppState, AppView, advance_clipboard_serial};
@@ -71,7 +71,7 @@ impl UiRuntime {
             AppView::Secrets => self.state.secrets.borrow().is_empty(),
         };
         if needs_refresh || top_refresh || is_empty {
-            refresh_entries_after_present(&self.state);
+            refresh_entries_after_present(&self.state, top_refresh);
         }
         Ok(())
     }
@@ -244,10 +244,15 @@ fn configure_overlay_window(window: &gtk::ApplicationWindow, config: &AppConfig)
     window.set_anchor(Edge::Bottom, false);
 }
 
-fn refresh_entries_after_present(state: &Rc<AppState>) {
+fn refresh_entries_after_present(state: &Rc<AppState>, preserve_pending_selection: bool) {
     let state = Rc::clone(state);
     gtk::glib::idle_add_local_once(move || {
-        if let Err(err) = refresh_entries(&state) {
+        let refresh = if preserve_pending_selection {
+            refresh_entries_with_pending_selection(&state)
+        } else {
+            refresh_entries(&state)
+        };
+        if let Err(err) = refresh {
             crate::actions::set_footer(&state, &format!("Refresh failed: {err:#}"));
         }
     });
@@ -265,6 +270,8 @@ pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow
     }
 }
 
+/// Hide the overlay and optionally paste the most recently copied value after
+/// the configured delay.
 pub(crate) fn close_overlay_and_paste(
     state: &Rc<AppState>,
     window: &gtk::ApplicationWindow,
