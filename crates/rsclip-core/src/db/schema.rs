@@ -329,7 +329,7 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_secrets_updated_at ON secrets(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_secrets_alias ON secrets(alias);
-            CREATE INDEX IF NOT EXISTS idx_secrets_value_deleted ON secrets(value, deleted);
+            CREATE INDEX IF NOT EXISTS idx_secrets_value ON secrets(value);
             "#,
         )?;
         self.ensure_columns(
