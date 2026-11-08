@@ -65,17 +65,31 @@ pub(crate) fn run_ocr_for_entry(state: &Rc<AppState>, entry_id: i64) -> Result<(
 
 fn finish_ocr(state: &Rc<AppState>, updated: ClipboardEntry) {
     let entry_id = updated.id;
-    if let Some(slot) = state
-        .entries
-        .borrow_mut()
-        .iter_mut()
-        .find(|entry| entry.id == entry_id)
-    {
-        *slot = updated.clone();
-    }
+    let current = {
+        let mut entries = state.entries.borrow_mut();
+        let Some(slot) = entries.iter_mut().find(|entry| entry.id == entry_id) else {
+            return;
+        };
+
+        if let (
+            EntryData::Image {
+                ocr_text: current_text,
+                ..
+            },
+            EntryData::Image {
+                ocr_text: updated_text,
+                ..
+            },
+        ) = (&mut slot.data, &updated.data)
+        {
+            *current_text = updated_text.clone();
+        }
+        slot.clone()
+    };
+
     // The user may have moved on while tesseract ran; only redraw if not.
     if state.currently_previewed_entry_id.get() == Some(entry_id) {
         crate::state::invalidate_preview_cache(state);
-        render_preview(state, &updated);
+        render_preview(state, &current);
     }
 }

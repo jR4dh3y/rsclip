@@ -146,7 +146,7 @@ fn type_query(state: &Rc<AppState>, query: &str, cadence: Duration) -> f64 {
 }
 
 /// Include debounce, database work, widget application, and the next paint.
-fn measure_search(state: &Rc<AppState>, window: &gtk::ApplicationWindow, query: &str) {
+fn measure_search(state: &Rc<AppState>, window: &gtk::ApplicationWindow, query: &str) -> f64 {
     let expected = Database::open(&state.db_path)
         .unwrap()
         .count_entries(query, *state.filter.borrow())
@@ -195,6 +195,7 @@ fn measure_search(state: &Rc<AppState>, window: &gtk::ApplicationWindow, query: 
         painted.get().unwrap()
     );
     pump(Duration::from_millis(120));
+    worst
 }
 
 /// The visible preview text must stay within the layout bounds.
@@ -509,7 +510,10 @@ fn perf_gtk_thread_stays_responsive() {
     let mut results = vec![("startup dispatch".into(), startup_worst)];
 
     for query in ["qxbase", "note 1", "zzqqxx-no-match", "site", "a"] {
-        measure_search(&state, &runtime.window, query);
+        results.push((
+            format!("search {query:?}"),
+            measure_search(&state, &runtime.window, query),
+        ));
     }
 
     // Typing: every keystroke auto-selects the top hit and renders its preview.
