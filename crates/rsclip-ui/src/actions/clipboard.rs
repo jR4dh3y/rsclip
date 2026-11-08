@@ -26,10 +26,12 @@ pub(crate) fn queue_copy(state: &Rc<AppState>, source: CopySource, then: AfterCo
     Ok(())
 }
 
+/// Queue a clipboard entry copy and apply `then` after the worker completes.
 pub(crate) fn queue_entry_copy(state: &Rc<AppState>, id: i64, then: AfterCopy) -> Result<()> {
     queue_copy(state, CopySource::Entry(id), then)
 }
 
+/// Queue a saved-secret copy without exposing its value to the GTK selection state.
 pub(crate) fn queue_secret_copy(
     state: &Rc<AppState>,
     secret: &SecretEntry,

@@ -11,7 +11,7 @@ use rsclip_core::{AppConfig, Database, RsclipPaths};
 use crate::actions::refresh::{refresh_entries, refresh_entries_with_pending_selection};
 use crate::actions::update_mode_controls;
 use crate::components::{footer, list, preview, topbar};
-use crate::state::{AppState, AppView, advance_clipboard_serial};
+use crate::state::{AppState, AppView, advance_clipboard_serial, advance_overlay_generation};
 
 pub(crate) struct UiRuntime {
     pub(crate) state: Rc<AppState>,
@@ -28,8 +28,10 @@ impl UiRuntime {
         refresh_entries(&self.state)
     }
 
+    /// Reset the overlay to its configured view and schedule any required list refresh.
     pub(crate) fn show_reset(&self) -> Result<()> {
         use gtk4_layer_shell::{KeyboardMode, LayerShell};
+        let overlay_generation = advance_overlay_generation(&self.state);
 
         let mut needs_refresh = false;
         if self.state.reset_on_show.get() {
@@ -71,7 +73,7 @@ impl UiRuntime {
             AppView::Secrets => self.state.secrets.borrow().is_empty(),
         };
         if needs_refresh || top_refresh || is_empty {
-            refresh_entries_after_present(&self.state, top_refresh);
+            refresh_entries_after_present(&self.state, top_refresh, overlay_generation);
         }
         Ok(())
     }
@@ -156,6 +158,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         list_request_tx: workers.list_request_tx,
         list_response_rx: workers.response_rx,
         list_generation: Cell::new(0),
+        overlay_generation: Cell::new(0),
         copy_request_tx: workers.copy_request_tx,
         clipboard_serial: Cell::new(0),
         pending_copies: Cell::new(0),
@@ -244,9 +247,16 @@ fn configure_overlay_window(window: &gtk::ApplicationWindow, config: &AppConfig)
     window.set_anchor(Edge::Bottom, false);
 }
 
-fn refresh_entries_after_present(state: &Rc<AppState>, preserve_pending_selection: bool) {
+fn refresh_entries_after_present(
+    state: &Rc<AppState>,
+    preserve_pending_selection: bool,
+    overlay_generation: u64,
+) {
     let state = Rc::clone(state);
     gtk::glib::idle_add_local_once(move || {
+        if state.overlay_generation.get() != overlay_generation {
+            return;
+        }
         let refresh = if preserve_pending_selection {
             refresh_entries_with_pending_selection(&state)
         } else {
@@ -258,9 +268,11 @@ fn refresh_entries_after_present(state: &Rc<AppState>, preserve_pending_selectio
     });
 }
 
+/// Hide the overlay and invalidate work scheduled for its presentation.
 pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
     use gtk4_layer_shell::{KeyboardMode, LayerShell};
 
+    advance_overlay_generation(state);
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_visible(false);
     advance_clipboard_serial(state);

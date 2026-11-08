@@ -260,6 +260,8 @@ pub(crate) struct AppState {
     pub(crate) list_request_tx: mpsc::Sender<WorkerRequest>,
     pub(crate) list_response_rx: mpsc::Receiver<WorkerResponse>,
     pub(crate) list_generation: Cell<u64>,
+    /// Identifies the currently visible overlay presentation.
+    pub(crate) overlay_generation: Cell<u64>,
     pub(crate) copy_request_tx: mpsc::Sender<CopyRequest>,
     /// Bumped by every clipboard write and by hiding the overlay. A queued
     /// paste only fires while it still matches, so it can never paste a
@@ -333,6 +335,14 @@ pub(crate) fn advance_clipboard_serial(state: &AppState) -> u64 {
     let serial = state.clipboard_serial.get().wrapping_add(1);
     state.clipboard_serial.set(serial);
     serial
+}
+
+/// Invalidate callbacks belonging to an earlier overlay presentation.
+pub(crate) fn advance_overlay_generation(state: &AppState) -> u64 {
+    state
+        .overlay_generation
+        .set(state.overlay_generation.get().wrapping_add(1));
+    state.overlay_generation.get()
 }
 
 /// Return the selected list summary without reading its full payload from SQLite.

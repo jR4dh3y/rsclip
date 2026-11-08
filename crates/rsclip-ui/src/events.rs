@@ -625,6 +625,9 @@ fn set_filter(state: &Rc<AppState>, filter: EntryFilter) {
 
 /// Handle Enter by queueing a paste for clipboard entries and saved secrets.
 fn handle_enter(state: &Rc<AppState>) {
+    if state.pending_selection.get().is_some() {
+        return;
+    }
     match *state.view.borrow() {
         AppView::Clipboard => {
             if let Some(entry) = current_entry(state)

@@ -19,11 +19,13 @@ const MIN_VISIBLE_ROWS: usize = 20;
 // Keep two full viewports on each side so fast arrow navigation stays within the rendered window.
 const WINDOW_PADDING_ROWS: usize = 50;
 
+/// Queue a fresh list window and discard any selection from the previous query.
 pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     state.pending_selection.set(None);
     refresh_entries_with_pending_selection(state)
 }
 
+/// Queue the first result window while retaining a pending selection from an overlay reopen.
 pub(crate) fn refresh_entries_with_pending_selection(state: &Rc<AppState>) -> Result<()> {
     let generation = crate::state::advance_list_generation(state);
     queue_window(state, generation, 0, 0, false, None)
@@ -62,11 +64,13 @@ pub(crate) fn reset_list_position(state: &Rc<AppState>) -> bool {
     false
 }
 
+/// Refresh the current list window without moving the selected global index.
 pub(crate) fn refresh_entries_preserving_selection(state: &Rc<AppState>) -> Result<()> {
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
     refresh_entries_at_index(state, selected_index)
 }
 
+/// Load a window centered on `target_index` and preserve its requested selection.
 pub(crate) fn refresh_entries_at_index(state: &Rc<AppState>, target_index: usize) -> Result<()> {
     state.pending_selection.set(None);
     let generation = crate::state::advance_list_generation(state);
@@ -259,6 +263,13 @@ pub(crate) fn resolve_window_selection(
         .or(Some(request_selection))
 }
 
+fn preferred_live_selection(
+    pending_selection: Option<usize>,
+    current_selection: Option<usize>,
+) -> Option<usize> {
+    pending_selection.or(current_selection)
+}
+
 /// Replace the visible clipboard window with a completed worker result.
 pub(crate) fn apply_clipboard_search_results(
     state: &Rc<AppState>,
@@ -267,10 +278,8 @@ pub(crate) fn apply_clipboard_search_results(
     start: usize,
     entries: Vec<ClipboardEntry>,
 ) {
-    let live_selection = state
-        .pending_selection
-        .take()
-        .or_else(|| current_entry_index(state));
+    let live_selection =
+        preferred_live_selection(state.pending_selection.take(), current_entry_index(state));
     state.secrets.borrow_mut().clear();
     state.secrets_start.set(0);
     state.secrets_total.set(0);
@@ -294,10 +303,8 @@ pub(crate) fn apply_secret_search_results(
     start: usize,
     secrets: Vec<SecretEntry>,
 ) {
-    let live_selection = state
-        .pending_selection
-        .take()
-        .or_else(|| current_secret_index(state));
+    let live_selection =
+        preferred_live_selection(state.pending_selection.take(), current_secret_index(state));
     state.entries.borrow_mut().clear();
     state.entries_start.set(0);
     state.entries_total.set(0);
@@ -797,8 +804,8 @@ fn update_secret_footer(state: &Rc<AppState>) {
 mod tests {
     use super::{
         RowShift, WINDOW_PADDING_ROWS, clamp_window_index, fetch_window, normalized_window_start,
-        plan_row_reuse, plan_row_shift, resolve_window_selection, scroll_reload_start,
-        window_row_count_for,
+        plan_row_reuse, plan_row_shift, preferred_live_selection, resolve_window_selection,
+        scroll_reload_start, window_row_count_for,
     };
     use crate::state::RowKey;
 
@@ -923,6 +930,12 @@ mod tests {
         assert_eq!(resolve_window_selection(Some(150), 36, 0, 100), Some(36));
         // If there was no live selection, fall back to request_selection.
         assert_eq!(resolve_window_selection(None, 36, 0, 100), Some(36));
+    }
+
+    #[test]
+    fn pending_reopen_selection_wins_over_stale_live_selection() {
+        assert_eq!(preferred_live_selection(Some(0), Some(90)), Some(0));
+        assert_eq!(preferred_live_selection(None, Some(90)), Some(90));
     }
 
     #[test]
