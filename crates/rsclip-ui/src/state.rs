@@ -239,7 +239,7 @@ pub(crate) struct PreviewRequest {
 
 pub(crate) struct PreviewResponse {
     pub(crate) request: PreviewRequest,
-    pub(crate) text: Result<Option<String>, String>,
+    pub(crate) load: Result<Option<crate::components::preview::PreviewLoad>, String>,
 }
 
 /// Worker output: the newest list result and/or failures of writes applied

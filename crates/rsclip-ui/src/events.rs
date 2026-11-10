@@ -392,7 +392,8 @@ fn copy_worker(
 }
 
 /// Open lazily after the first list has loaded, then serve only the newest
-/// queued selection. Schema setup and preview reads never run on GTK.
+/// queued selection. Schema setup, preview reads, and text preparation never
+/// run on GTK.
 fn preview_worker(
     db_path: std::path::PathBuf,
     request_rx: mpsc::Receiver<PreviewRequest>,
@@ -403,16 +404,23 @@ fn preview_worker(
         for newer in request_rx.try_iter() {
             request = newer;
         }
-        let text = match db.get_or_insert_with(|| Database::open(&db_path)) {
+        // Language detection and bounding run here too, so GTK only has to
+        // put the finished text into its buffer.
+        let load = match db.get_or_insert_with(|| Database::open(&db_path)) {
             Ok(db) => db
                 .get_text_preview(
                     request.entry.id,
                     crate::components::preview::MAX_PREVIEW_BYTES + 1,
                 )
+                .map(|text| {
+                    text.map(|text| {
+                        crate::components::preview::prepare_preview_load(&request.entry, text)
+                    })
+                })
                 .map_err(|err| format!("{err:#}")),
             Err(err) => Err(format!("{err:#}")),
         };
-        if text.is_err() {
+        if load.is_err() {
             db = None;
         }
         if !send_worker_response(
@@ -420,7 +428,7 @@ fn preview_worker(
             WorkerResponse {
                 list: None,
                 copy: None,
-                preview: Some(PreviewResponse { request, text }),
+                preview: Some(PreviewResponse { request, load }),
                 write_error: None,
             },
         ) {

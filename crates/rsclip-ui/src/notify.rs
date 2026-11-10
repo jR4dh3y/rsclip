@@ -7,7 +7,7 @@ use std::rc::Rc;
 use anyhow::{Context, Result};
 use gtk4 as gtk;
 use gtk4::prelude::*;
-use rsclip_core::notify::{CHANGE_EVENT, FAVICON_EVENT};
+use rsclip_core::notify::{CHANGE_EVENT, FAVICON_EVENT, SHOW_EVENT, TOGGLE_EVENT};
 
 use crate::actions::refresh::{refresh_entries, refresh_entries_if_changed, rerender_link_rows};
 use crate::actions::set_footer;
@@ -48,8 +48,16 @@ pub(crate) fn install_change_listener(
             loop {
                 match socket.recv(&mut buf) {
                     Ok(size) => {
-                        changed |= &buf[..size] == CHANGE_EVENT;
-                        favicons_changed |= &buf[..size] == FAVICON_EVENT;
+                        let event = &buf[..size];
+                        changed |= event == CHANGE_EVENT;
+                        favicons_changed |= event == FAVICON_EVENT;
+                        // Hotkey commands from `rsclipd toggle`/`show`, in
+                        // the order they were sent.
+                        if event == TOGGLE_EVENT {
+                            crate::window::toggle_overlay(&state, &window);
+                        } else if event == SHOW_EVENT {
+                            crate::window::show_overlay(&state, &window);
+                        }
                     }
                     Err(err) if err.kind() == ErrorKind::WouldBlock => break,
                     Err(err) => {

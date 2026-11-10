@@ -127,6 +127,16 @@ rsclip quit-ui      # stop the resident UI process
 rsclip list         # print history from SQLite without starting GTK
 ```
 
+For a compositor key binding, prefer `rsclipd toggle` (or `rsclipd show`). It sends the
+request straight to the resident UI's socket and exits in about 2 ms; `rsclip toggle`
+does the same thing but first loads GTK, which costs roughly 25 ms per key press. Both
+start the resident UI if it is not running yet.
+
+```bash
+rsclipd toggle      # fastest way to toggle the resident UI from a hotkey
+rsclipd show
+```
+
 Options for `rsclip list` and `rsclipd list`:
 - `--query <q>`: Filter by search query
 - `--filter <filter>`: `all`, `text`, `images`, `files`, `links`, `colors`, `pinned`

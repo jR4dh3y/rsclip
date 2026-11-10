@@ -17,7 +17,22 @@ pub(crate) fn run() -> Result<()> {
             crate::cli::print_help();
             return Ok(());
         }
-        UiCommand::Show | UiCommand::Toggle | UiCommand::Preload | UiCommand::QuitUi => {}
+        // A resident UI takes hotkey commands on its socket; only fall
+        // through to GApplication (session bus registration and forwarding)
+        // when none is listening and this process has to become it.
+        command @ (UiCommand::Show | UiCommand::Toggle) => {
+            let event = if command == UiCommand::Toggle {
+                rsclip_core::notify::TOGGLE_EVENT
+            } else {
+                rsclip_core::notify::SHOW_EVENT
+            };
+            if rsclip_core::RsclipPaths::discover()
+                .is_ok_and(|paths| rsclip_core::notify::send_ui_command(&paths, event))
+            {
+                return Ok(());
+            }
+        }
+        UiCommand::Preload | UiCommand::QuitUi => {}
     }
 
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {

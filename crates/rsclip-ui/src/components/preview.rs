@@ -35,6 +35,39 @@ pub(crate) const MAX_HIGHLIGHT_BYTES: usize = 8 * 1024;
 pub(crate) const FULL_PREVIEW_TRUNCATED_NOTICE: &str =
     "\n\n[Preview truncated — copy the entry for full content]";
 pub(crate) const BINARY_PREVIEW_NOTICE: &str = "[Binary data — copy the entry for full content]";
+/// How long a text selection waits for the preview worker before showing the
+/// list summary instead. The read normally returns within a millisecond.
+const SUMMARY_FALLBACK_DELAY: std::time::Duration = std::time::Duration::from_millis(40);
+
+/// Text ready for the preview widgets: bounded, NUL-free, language known.
+pub(crate) struct PreviewBody {
+    pub(crate) text: String,
+    pub(crate) lang: Option<CodeLanguage>,
+}
+
+/// What the preview worker read for an entry whose list summary lacks it.
+pub(crate) enum PreviewLoad {
+    /// Text and unknown entries: ready to display.
+    Body(PreviewBody),
+    /// Other kinds (file lists) parse their payload while rendering.
+    Payload(String),
+}
+
+/// Detect the language of `raw` and bound it for display. Pure, so the
+/// preview worker runs it off the GTK thread.
+pub(crate) fn prepare_preview_body(raw: &str) -> PreviewBody {
+    PreviewBody {
+        lang: rsclip_core::syntax::detect_code_language(raw),
+        text: sanitize_preview_text(raw).into_owned(),
+    }
+}
+
+pub(crate) fn prepare_preview_load(entry: &ClipboardEntry, text: String) -> PreviewLoad {
+    match entry.data {
+        EntryData::Text | EntryData::Unknown => PreviewLoad::Body(prepare_preview_body(&text)),
+        _ => PreviewLoad::Payload(text),
+    }
+}
 
 pub(crate) struct PreviewPanel {
     pub(crate) shell: gtk::Box,
@@ -197,18 +230,67 @@ pub(crate) fn render_secret_preview(state: &Rc<AppState>, secret: &SecretEntry) 
     render_secret_details(&state.details, secret);
 }
 
+/// Show `entry` in the preview pane.
+///
+/// A text entry's list summary only carries a whitespace-collapsed excerpt,
+/// so its real text comes from the preview worker. Rendering that excerpt
+/// first and the text a millisecond later built every text preview twice,
+/// and could compile highlighting for a language the excerpt alone suggested.
+/// The pane now keeps its previous content until the worker answers, and
+/// falls back to the excerpt only if the read is slow.
 pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     if state.currently_previewed_entry_id.get() == Some(entry.id) {
         return;
     }
     state.currently_previewed_entry_id.set(Some(entry.id));
     if state.currently_previewed_secret_id.take().is_some() {
+        // Never leave a secret's text or actions up while waiting.
         state.channels.text_buffer.set_text("");
+        crate::components::clear_box(&state.preview);
+        crate::components::clear_box(&state.details);
     }
 
     let generation = state.preview_generation.get().wrapping_add(1);
     state.preview_generation.set(generation);
 
+    let needs_full_read = entry.text_content.is_none()
+        && matches!(
+            entry.data,
+            EntryData::Text | EntryData::Unknown | EntryData::File { .. }
+        );
+    if needs_full_read {
+        let request = PreviewRequest {
+            entry: entry.clone(),
+            generation,
+        };
+        if state.preview_request_tx.send(request).is_ok() {
+            schedule_summary_fallback(state, entry.clone(), generation);
+            return;
+        }
+    }
+    render_preview_content(state, entry, None);
+}
+
+/// Whether `entry`'s request from `generation` is still the wanted preview.
+fn preview_is_current(state: &AppState, entry_id: i64, generation: u64) -> bool {
+    state.currently_previewed_entry_id.get() == Some(entry_id)
+        && state.preview_generation.get() == generation
+}
+
+/// Show the list summary if the worker has not answered in time (cold
+/// storage, a locked database). A later answer still replaces it.
+fn schedule_summary_fallback(state: &Rc<AppState>, entry: ClipboardEntry, generation: u64) {
+    let state = Rc::clone(state);
+    gtk::glib::timeout_add_local_once(SUMMARY_FALLBACK_DELAY, move || {
+        if preview_is_current(&state, entry.id, generation) {
+            render_preview_content(&state, &entry, None);
+        }
+    });
+}
+
+/// Rebuild the preview and details panes for `entry`. `body` is the worker's
+/// prepared text for a text entry, when it has one.
+fn render_preview_content(state: &Rc<AppState>, entry: &ClipboardEntry, body: Option<PreviewBody>) {
     rsclip_core::profiler::begin_phase("render_preview");
     crate::components::clear_box(&state.preview);
     crate::components::clear_box(&state.details);
@@ -219,30 +301,27 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         .set_opacity(if can_ocr { 1.0 } else { 0.0 });
     state.ocr_button.set_sensitive(can_ocr);
 
-    // Show the summary immediately. Even a bounded SQLite read can block on
-    // cold storage; the preview worker upgrades it without holding GTK.
-    let defer_full_read = entry.text_content.is_none()
-        && matches!(
-            entry.data,
-            EntryData::Text | EntryData::Unknown | EntryData::File { .. }
-        );
-
+    let mut file_list = None;
     match &entry.data {
         EntryData::Image { .. } => render_image_preview(state, entry),
         EntryData::Color { value, .. } => render_color_preview(state, value),
         EntryData::Link { url, .. } => {
             render_text_preview_state(state, Some(url));
         }
-        EntryData::File { .. } => render_file_preview(state, entry),
+        EntryData::File { .. } => file_list = render_file_preview(state, entry),
         EntryData::Text | EntryData::Unknown => {
             let content = entry
                 .text_content
                 .as_deref()
                 .or(entry.preview_text.as_deref());
-            if content.is_none() && matches!(entry.data, EntryData::Unknown) {
-                render_text_preview_state(state, Some(BINARY_PREVIEW_NOTICE));
-            } else {
-                render_text_or_code_preview(state, content);
+            match body {
+                Some(body) => render_text_or_code_preview(state, &body),
+                None if content.is_none() && matches!(entry.data, EntryData::Unknown) => {
+                    render_text_preview_state(state, Some(BINARY_PREVIEW_NOTICE));
+                }
+                None => {
+                    render_text_or_code_preview(state, &prepare_preview_body(content.unwrap_or("")))
+                }
             }
         }
     }
@@ -257,14 +336,13 @@ pub(crate) fn render_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         render_text_preview_state(state, Some(ocr));
     }
 
-    if defer_full_read {
-        let _ = state.preview_request_tx.send(PreviewRequest {
-            entry: entry.clone(),
-            generation,
-        });
+    let shown_files = file_list
+        .as_ref()
+        .map(|files| (files.paths.len(), files.truncated));
+    let missing_value = render_details(&state.details, entry, shown_files);
+    if let Some(files) = file_list {
+        count_missing_files(state, files, missing_value);
     }
-
-    render_details(&state.details, entry);
     rsclip_core::profiler::end_phase("render_preview");
     if rsclip_core::profiler::enabled() {
         rsclip_core::profiler::print_report();
@@ -422,24 +500,31 @@ fn image_frame(width: i32, height: i32) -> (gtk::AspectFrame, gtk::Picture) {
     (frame, picture)
 }
 
-fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
+/// A rendered file list whose missing-file count is still being checked.
+struct FileListPreview {
+    paths: Vec<std::path::PathBuf>,
+    truncated: bool,
+    status: gtk::Label,
+    status_text: String,
+}
+
+fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) -> Option<FileListPreview> {
     rsclip_core::profiler::begin_phase("render_file_preview");
     let Some(payload) = entry.text_content.as_deref() else {
         state
             .preview
             .append(&muted_label("File list is unavailable"));
         rsclip_core::profiler::end_phase("render_file_preview");
-        return;
+        return None;
     };
-    // Bound parsing, allocation, and `exists()` stats before touching the
-    // payload: legacy rows can hold thousands of URIs and this runs on the
-    // GTK thread.
+    // Bound parsing and allocation before touching the payload: legacy rows
+    // can hold thousands of URIs and this runs on the GTK thread.
     let bounded =
         parse_uri_list_bounded(payload, URI_LIST_PREVIEW_MAX_FILES, MAX_PREVIEW_READ_BYTES);
     if bounded.files.is_empty() {
         render_text_preview_state(state, Some(payload));
         rsclip_core::profiler::end_phase("render_file_preview");
-        return;
+        return None;
     }
 
     let files = &bounded.files;
@@ -448,7 +533,6 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
         .map(|file| file.path.to_string_lossy().to_string())
         .collect::<Vec<_>>()
         .join("\n");
-    let missing_count = files.iter().filter(|file| !file.path.exists()).count();
 
     let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
     header.set_hexpand(true);
@@ -457,15 +541,13 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
     title.set_hexpand(true);
     header.append(&title);
 
-    let mut status = if bounded.truncated {
+    let status_text = if bounded.truncated {
         format!("{}+ files", files.len())
     } else {
         file_count_label(files.len())
     };
-    if missing_count > 0 {
-        status.push_str(&format!(", {missing_count} missing"));
-    }
-    header.append(&muted_label(&status));
+    let status = muted_label(&status_text);
+    header.append(&status);
 
     let copy = gtk::Button::with_label("Copy paths");
     copy.add_css_class("primary-button");
@@ -495,6 +577,53 @@ fn render_file_preview(state: &Rc<AppState>, entry: &ClipboardEntry) {
 
     render_text_preview_state(state, Some(&paths));
     rsclip_core::profiler::end_phase("render_file_preview");
+    Some(FileListPreview {
+        paths: bounded.files.into_iter().map(|file| file.path).collect(),
+        truncated: bounded.truncated,
+        status,
+        status_text,
+    })
+}
+
+/// Check which listed files still exist, off the GTK thread.
+///
+/// Up to 500 `stat` calls ran on GTK for every selection of a file entry,
+/// once for the header and again for the details pane; a single path on an
+/// unresponsive mount froze the overlay. One pass on a worker now fills in
+/// both places when it finishes.
+fn count_missing_files(
+    state: &Rc<AppState>,
+    files: FileListPreview,
+    missing_value: Option<gtk::Label>,
+) {
+    let generation = state.preview_generation.get();
+    let state = Rc::clone(state);
+    gtk::glib::spawn_future_local(async move {
+        let FileListPreview {
+            paths,
+            truncated,
+            status,
+            status_text,
+        } = files;
+        let Ok(missing) =
+            gio::spawn_blocking(move || paths.iter().filter(|path| !path.exists()).count()).await
+        else {
+            return;
+        };
+        if state.preview_generation.get() != generation {
+            return;
+        }
+        if missing > 0 {
+            status.set_text(&format!("{status_text}, {missing} missing"));
+        }
+        if let Some(value) = missing_value {
+            value.set_text(&if truncated {
+                format!("{missing}+")
+            } else {
+                missing.to_string()
+            });
+        }
+    });
 }
 
 fn file_count_label(count: usize) -> String {
@@ -579,29 +708,37 @@ fn sanitize_preview_text(text: &str) -> std::borrow::Cow<'_, str> {
 
 /// A background read may finish after selection, view, or content changed.
 pub(crate) fn apply_preview_response(state: &Rc<AppState>, response: PreviewResponse) {
-    let PreviewResponse { request, text } = response;
-    if state.currently_previewed_entry_id.get() != Some(request.entry.id)
-        || state.preview_generation.get() != request.generation
-    {
+    let PreviewResponse { request, load } = response;
+    if !preview_is_current(state, request.entry.id, request.generation) {
         return;
     }
-    let Ok(Some(text)) = text else {
-        return;
-    };
-    let mut full = request.entry;
-    full.text_content = Some(text);
-    state.currently_previewed_entry_id.set(None);
-    render_preview(state, &full);
+    // Later answers for this request are obsolete from here on.
+    state
+        .preview_generation
+        .set(request.generation.wrapping_add(1));
+    let mut entry = request.entry;
+    match load {
+        Ok(Some(PreviewLoad::Body(body))) => render_preview_content(state, &entry, Some(body)),
+        Ok(Some(PreviewLoad::Payload(text))) => {
+            entry.text_content = Some(text);
+            render_preview_content(state, &entry, None);
+        }
+        // Nothing more to read (or the read failed): the summary is all there is.
+        Ok(None) | Err(_) => render_preview_content(state, &entry, None),
+    }
 }
 
-fn render_text_or_code_preview(state: &Rc<AppState>, text: Option<&str>) {
-    let raw = text.unwrap_or("");
-    if let Some(lang) = rsclip_core::syntax::detect_code_language(raw) {
+fn render_text_or_code_preview(state: &Rc<AppState>, body: &PreviewBody) {
+    if let Some(lang) = body.lang {
         state.channels.text_buffer.set_text("");
-        render_code_preview(state, raw, lang);
+        render_code_preview(state, &body.text, lang);
     } else {
         clear_code_buffer(state);
-        render_text_preview_state(state, text);
+        rsclip_core::profiler::begin_phase("render_text_preview");
+        state.channels.text_buffer.set_text(&body.text);
+        state.channels.text.vadjustment().set_value(0.0);
+        state.preview.append(&state.channels.text);
+        rsclip_core::profiler::end_phase("render_text_preview");
     }
 }
 
@@ -611,9 +748,13 @@ fn clear_code_buffer(state: &AppState) {
     }
 }
 
-fn render_code_preview(state: &Rc<AppState>, text: &str, lang: rsclip_core::syntax::CodeLanguage) {
+/// Show already bounded `sanitized` text in the source view.
+fn render_code_preview(
+    state: &Rc<AppState>,
+    sanitized: &str,
+    lang: rsclip_core::syntax::CodeLanguage,
+) {
     rsclip_core::profiler::begin_phase("render_code_preview");
-    let sanitized = sanitize_preview_text(text);
 
     let code = state.channels.code.get_or_init(|| build_code_channel(lang));
     let buffer = &code.buffer;
@@ -628,7 +769,7 @@ fn render_code_preview(state: &Rc<AppState>, text: &str, lang: rsclip_core::synt
         crate::highlight::retain_language_contexts(lang, &language);
         buffer.set_language(Some(&language));
     }
-    buffer.set_text(&sanitized);
+    buffer.set_text(sanitized);
     buffer.set_highlight_syntax(highlight);
 
     code.scroller.vadjustment().set_value(0.0);

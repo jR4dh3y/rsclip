@@ -1,13 +1,20 @@
 use gtk::prelude::*;
 use gtk4 as gtk;
-use rsclip_core::files::{URI_LIST_PREVIEW_MAX_FILES, parse_uri_list_bounded};
 use rsclip_core::format::{format_full_time, human_size};
 use rsclip_core::models::{ClipboardEntry, EntryData, SecretEntry};
 
 use crate::components::labels::muted_label;
-use crate::components::preview::MAX_PREVIEW_READ_BYTES;
 
-pub(crate) fn render_details(container: &gtk::Box, entry: &ClipboardEntry) {
+/// Render the details rows for `entry`.
+///
+/// `shown_files` is the file preview's parsed list (count, truncated). The
+/// returned label is the "Missing" value, which the preview fills in once
+/// its off-thread existence check finishes.
+pub(crate) fn render_details(
+    container: &gtk::Box,
+    entry: &ClipboardEntry,
+    shown_files: Option<(usize, bool)>,
+) -> Option<gtk::Label> {
     rsclip_core::profiler::begin_phase("render_details");
     let type_label = if entry.kind == rsclip_core::models::EntryKind::Text {
         let sample = entry
@@ -25,42 +32,31 @@ pub(crate) fn render_details(container: &gtk::Box, entry: &ClipboardEntry) {
     };
     let mut rows = vec![("Type", type_label)];
 
+    let mut missing_row = None;
     if let EntryData::File { .. } = &entry.data {
-        // Same pre-parse bounds as the file preview: counts cover the shown
-        // subset, with "+" marking partial results.
-        let payload = entry.text_content.as_deref().unwrap_or("");
-        let bounded =
-            parse_uri_list_bounded(payload, URI_LIST_PREVIEW_MAX_FILES, MAX_PREVIEW_READ_BYTES);
-        let shown = bounded.files.len();
+        // Counts cover the shown subset, with "+" marking partial results.
+        let (shown, truncated) = shown_files.unwrap_or((0, false));
         rows.push((
             "Files",
-            if bounded.truncated {
+            if truncated {
                 format!("{shown}+")
             } else {
                 shown.to_string()
             },
         ));
-        let missing = bounded
-            .files
-            .iter()
-            .filter(|file| !file.path.exists())
-            .count();
-        rows.push((
-            "Missing",
-            if bounded.truncated {
-                format!("{missing}+")
-            } else {
-                missing.to_string()
-            },
-        ));
+        missing_row = Some(rows.len());
+        rows.push(("Missing", if shown == 0 { "0" } else { "…" }.to_string()));
     }
     rows.extend([
         ("MIME", entry.mime_type.clone()),
         ("Size", human_size(entry.size_bytes)),
         ("First copied", format_full_time(entry.copied_at)),
     ]);
-    render_rows(container, &rows);
+    let mut values = render_rows(container, &rows);
     rsclip_core::profiler::end_phase("render_details");
+    missing_row
+        .filter(|_| shown_files.is_some_and(|(shown, _)| shown > 0))
+        .map(|index| values.swap_remove(index))
 }
 
 pub(crate) fn render_secret_details(container: &gtk::Box, secret: &SecretEntry) {
@@ -73,19 +69,24 @@ pub(crate) fn render_secret_details(container: &gtk::Box, secret: &SecretEntry) 
     render_rows(container, &rows);
 }
 
-fn render_rows(container: &gtk::Box, rows: &[(&str, String)]) {
+/// Append one row per `(key, value)`; returns the value labels in order.
+fn render_rows(container: &gtk::Box, rows: &[(&str, String)]) -> Vec<gtk::Label> {
     let details = gtk::Box::new(gtk::Orientation::Vertical, 6);
     details.add_css_class("details-grid");
     details.set_hexpand(true);
 
+    let mut values = Vec::with_capacity(rows.len());
     for (label, value) in rows {
-        details.append(&detail_row(label, value));
+        let (row, value) = detail_row(label, value);
+        details.append(&row);
+        values.push(value);
     }
 
     container.append(&details);
+    values
 }
 
-fn detail_row(label: &str, value: &str) -> gtk::Box {
+fn detail_row(label: &str, value: &str) -> (gtk::Box, gtk::Label) {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     row.add_css_class("details-row");
     row.set_hexpand(true);
@@ -105,5 +106,5 @@ fn detail_row(label: &str, value: &str) -> gtk::Box {
 
     row.append(&key);
     row.append(&value);
-    row
+    (row, value)
 }

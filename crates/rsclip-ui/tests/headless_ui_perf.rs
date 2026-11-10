@@ -232,6 +232,20 @@ fn assert_preview_bounded(state: &Rc<AppState>, case: &str) {
     }
 }
 
+/// Text of every label under `widget`, in tree order.
+fn label_texts(widget: &gtk::Widget) -> Vec<String> {
+    let mut texts = Vec::new();
+    if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        texts.push(label.text().to_string());
+    }
+    let mut child = widget.first_child();
+    while let Some(current) = child {
+        texts.extend(label_texts(&current));
+        child = current.next_sibling();
+    }
+    texts
+}
+
 /// A full (non-summary) text entry, so the preview uses `text` as is.
 fn synthetic_text_entry(id: i64, text: &str) -> rsclip_core::models::ClipboardEntry {
     rsclip_core::models::ClipboardEntry {
@@ -647,7 +661,7 @@ fn perf_gtk_thread_stays_responsive() {
         "a paste fired after a later copy replaced its clipboard value"
     );
     actions::clipboard::queue_entry_copy(&state, seeded.huge_id, AfterCopy::Paste).unwrap();
-    runtime.hide();
+    window::hide_overlay(&state, &runtime.window);
     runtime.show_reset().unwrap();
     pump_until(&copies_done);
     assert!(copies_done(), "the copy did not finish");
@@ -675,6 +689,25 @@ fn perf_gtk_thread_stays_responsive() {
         "a current paste did not close the overlay"
     );
     runtime.show_reset().unwrap();
+    settle();
+
+    // Hotkey datagrams (`rsclipd toggle` / `show`) drive the same overlay
+    // without the sender loading GTK or going through D-Bus.
+    assert!(
+        rsclip_core::notify::send_ui_command(&paths, rsclip_core::notify::TOGGLE_EVENT),
+        "the resident UI is not listening on its socket"
+    );
+    pump_until(&|| !runtime.window.is_visible());
+    assert!(
+        !runtime.window.is_visible(),
+        "a toggle datagram did not hide the overlay"
+    );
+    rsclip_core::notify::send_ui_command(&paths, rsclip_core::notify::SHOW_EVENT);
+    pump_until(&|| runtime.window.is_visible());
+    assert!(
+        runtime.window.is_visible(),
+        "a show datagram did not show the overlay"
+    );
     settle();
 
     // Favicon fetch landing while the overlay is open.
@@ -730,7 +763,9 @@ fn perf_gtk_thread_stays_responsive() {
                 entry: summary,
                 generation: requested_generation,
             },
-            text: Ok(Some("obsolete response".into())),
+            load: Ok(Some(components::preview::PreviewLoad::Body(
+                components::preview::prepare_preview_body("obsolete response"),
+            ))),
         },
     );
     assert_eq!(
@@ -738,6 +773,54 @@ fn perf_gtk_thread_stays_responsive() {
         upgraded,
         "an obsolete preview overwrote newer content"
     );
+
+    // File lists render at once; the missing-file count is filled in by a
+    // worker, in the header and in the details pane.
+    let existing = root.join("present.txt");
+    std::fs::write(&existing, "x").unwrap();
+    let uri_list = format!(
+        "file://{}\r\nfile://{}\r\n",
+        existing.display(),
+        root.join("absent.txt").display()
+    );
+    let file_entry = rsclip_core::classify::classify_payload(
+        "text/uri-list",
+        "file-list".into(),
+        uri_list.as_bytes(),
+    )
+    .unwrap();
+    db.upsert_entry(&file_entry).unwrap();
+    let file_summary = db
+        .list_entry_summaries_page(
+            "",
+            rsclip_core::models::EntryFilter::Files,
+            rsclip_core::models::SortMode::Default,
+            1,
+            0,
+        )
+        .unwrap()
+        .remove(0);
+    state::invalidate_preview_cache(&state);
+    components::preview::render_preview(&state, &file_summary);
+    let shown = label_texts(state.preview.upcast_ref());
+    assert!(
+        shown.iter().any(|text| text == "2 files"),
+        "file list did not render immediately: {shown:?}"
+    );
+    pump_until(&|| {
+        label_texts(state.preview.upcast_ref())
+            .iter()
+            .any(|text| text == "2 files, 1 missing")
+    });
+    assert!(
+        label_texts(state.preview.upcast_ref())
+            .iter()
+            .any(|text| text == "2 files, 1 missing"),
+        "the missing-file count never arrived"
+    );
+    let details = label_texts(state.details.upcast_ref());
+    let missing = details.iter().position(|text| text == "Missing").unwrap();
+    assert_eq!(details[missing + 1], "1", "details pane: {details:?}");
 
     // Exercise the other search view and ordered rename/delete writes.
     let secret_id = db
