@@ -285,6 +285,7 @@ pub(crate) struct AppState {
     /// paste only fires while it still matches, so it can never paste a
     /// later copy's value or into a session the user already closed.
     pub(crate) clipboard_serial: Cell<u64>,
+    pub(crate) paste_process: RefCell<Option<gio::Subprocess>>,
     /// Copies queued on the copy worker that GTK has not finished handling.
     pub(crate) pending_copies: Cell<usize>,
     pub(crate) favicon_icon_dir: PathBuf,
@@ -352,6 +353,9 @@ pub(crate) fn advance_list_generation(state: &AppState) -> u64 {
 
 /// Invalidate any pending paste; returns the new serial.
 pub(crate) fn advance_clipboard_serial(state: &AppState) -> u64 {
+    if let Some(process) = state.paste_process.borrow_mut().take() {
+        process.force_exit();
+    }
     let serial = state.clipboard_serial.get().wrapping_add(1);
     state.clipboard_serial.set(serial);
     serial

@@ -79,9 +79,8 @@ pub(crate) fn install_change_listener(
             }
             if favicons_changed {
                 crate::components::list::clear_favicon_cache();
-                if window.is_visible() {
-                    rerender_link_rows(&state);
-                }
+                // Refresh live link widgets and discard cached ones even while hidden.
+                rerender_link_rows(&state);
             }
             gtk::glib::ControlFlow::Continue
         });

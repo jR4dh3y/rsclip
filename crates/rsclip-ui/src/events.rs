@@ -282,45 +282,22 @@ fn list_worker(
     response_tx: mpsc::Sender<WorkerResponse>,
     generation: Arc<AtomicU64>,
 ) {
-    let db = match Database::open(db_path) {
-        Ok(db) => db,
-        Err(err) => {
-            let err = format!("{err:#}");
-            for request in request_rx {
-                let response = match request {
-                    WorkerRequest::Write(_) => WorkerResponse {
-                        list: None,
-                        copy: None,
-                        preview: None,
-                        write_error: Some(err.clone()),
-                    },
-                    WorkerRequest::List(request) => WorkerResponse {
-                        list: Some(ListResponse {
-                            request,
-                            result: Err(err.clone()),
-                        }),
-                        copy: None,
-                        preview: None,
-                        write_error: None,
-                    },
-                };
-                if !send_worker_response(&response_tx, response) {
-                    break;
-                }
-            }
-            return;
-        }
-    };
-
+    let mut connection = None;
     while let Ok(first) = request_rx.recv() {
+        let db = connection
+            .get_or_insert_with(|| Database::open(&db_path).map_err(|err| format!("{err:#}")));
         let mut list_request = None;
         let mut write_error = None;
         let mut next = Some(first);
         while let Some(message) = next {
             match message {
                 WorkerRequest::Write(op) => {
-                    if let Err(err) = op.apply(&db) {
-                        write_error = Some(format!("{err:#}"));
+                    let result = match db {
+                        Ok(db) => op.apply(db).map_err(|err| format!("{err:#}")),
+                        Err(err) => Err(err.clone()),
+                    };
+                    if let Err(err) = result {
+                        write_error = Some(err);
                     }
                 }
                 // If typing produced several requests before SQLite became
@@ -332,10 +309,16 @@ fn list_worker(
         }
 
         let list = list_request.map(|request| {
-            let result =
-                load_cancellable_list(&db, &request, &generation).map_err(|err| format!("{err:#}"));
+            let result = match db {
+                Ok(db) => load_cancellable_list(db, &request, &generation)
+                    .map_err(|err| format!("{err:#}")),
+                Err(err) => Err(err.clone()),
+            };
             ListResponse { request, result }
         });
+        if db.is_err() {
+            connection = None;
+        }
         if (list.is_some() || write_error.is_some())
             && !send_worker_response(
                 &response_tx,
@@ -406,12 +389,17 @@ fn preview_worker(
         }
         // Language detection and bounding run here too, so GTK only has to
         // put the finished text into its buffer.
+        let read_limit = if matches!(
+            request.entry.data,
+            rsclip_core::models::EntryData::File { .. }
+        ) {
+            crate::components::preview::MAX_PREVIEW_READ_BYTES + 1
+        } else {
+            crate::components::preview::MAX_PREVIEW_BYTES + 1
+        };
         let load = match db.get_or_insert_with(|| Database::open(&db_path)) {
             Ok(db) => db
-                .get_text_preview(
-                    request.entry.id,
-                    crate::components::preview::MAX_PREVIEW_BYTES + 1,
-                )
+                .get_text_preview(request.entry.id, read_limit)
                 .map(|text| {
                     text.map(|text| {
                         crate::components::preview::prepare_preview_load(&request.entry, text)
@@ -781,6 +769,50 @@ mod tests {
             preserve_scroll: false,
             known_total: None,
         }
+    }
+
+    #[test]
+    fn list_worker_recovers_after_database_open_failure() {
+        let root = std::env::temp_dir().join(format!(
+            "rsclip-retry-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let parent = root.join("blocked");
+        std::fs::write(&parent, b"not a directory").unwrap();
+        let path = parent.join("history.sqlite");
+        let (tx, rx) = mpsc::channel();
+        let (out, responses) = mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            super::list_worker(path, rx, out, Arc::new(AtomicU64::new(1)))
+        });
+        tx.send(WorkerRequest::List(list_request(EntryFilter::All)))
+            .unwrap();
+        assert!(
+            responses
+                .recv_timeout(Duration::from_secs(5))
+                .unwrap()
+                .list
+                .unwrap()
+                .result
+                .is_err()
+        );
+        std::fs::remove_file(&parent).unwrap();
+        std::fs::create_dir(&parent).unwrap();
+        tx.send(WorkerRequest::List(list_request(EntryFilter::All)))
+            .unwrap();
+        let result = responses
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .list
+            .unwrap()
+            .result
+            .unwrap();
+        assert!(matches!(result, ListResults::Clipboard { total: 0, .. }));
+        drop(tx);
+        thread.join().unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Writes moved off the GTK thread must still land before the refresh

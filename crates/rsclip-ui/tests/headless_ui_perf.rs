@@ -478,7 +478,7 @@ fn perf_gtk_thread_stays_responsive() {
     let show_ms = ms(started.elapsed());
     let context = gtk::glib::MainContext::default();
     let mut first_rows_ms = None;
-    let mut startup_worst = 0.0_f64;
+    let mut startup_worst = build_ms.max(show_ms);
     let deadline = Instant::now() + Duration::from_millis(1_500);
     while Instant::now() < deadline {
         let started = Instant::now();
@@ -670,6 +670,46 @@ fn perf_gtk_thread_stays_responsive() {
         "a paste from a closed overlay session closed the reopened one"
     );
 
+    // Cancel a paste tool that has started but has not injected its keys yet.
+    let paste_marker = root.join("paste-injected");
+    let wtype = bin_dir.join("wtype");
+    std::fs::write(
+        &wtype,
+        format!(
+            "#!/bin/sh\nsleep 0.4\nprintf pasted > '{}'\n",
+            paste_marker.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&wtype, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    *state.paste_method.borrow_mut() = "wtype".into();
+    state.paste_delay_ms.set(0);
+    for reopen in [true, false] {
+        window::close_overlay_and_paste(&state, &runtime.window, true);
+        pump_until(&|| state.paste_process.borrow().is_some());
+        assert!(state.paste_process.borrow().is_some());
+        if reopen {
+            runtime.show_reset().unwrap();
+        } else {
+            actions::clipboard::queue_copy(
+                &state,
+                state::CopySource::Text("cancel paste".into()),
+                AfterCopy::REPORT_ENTRY,
+            )
+            .unwrap();
+        }
+        let worst = pump(Duration::from_millis(600));
+        assert!(!paste_marker.exists(), "an obsolete paste injected keys");
+        results.push((format!("cancel running paste, reopen={reopen}"), worst));
+    }
+    window::close_overlay_and_paste(&state, &runtime.window, true);
+    pump_until(&|| paste_marker.exists());
+    assert!(
+        paste_marker.exists(),
+        "the current paste never injected keys"
+    );
+    runtime.show_reset().unwrap();
+
     // Every clipboard write is ordered: a small copy queued behind a large
     // one must not be overwritten by it.
     actions::clipboard::queue_entry_copy(&state, seeded.huge_id, AfterCopy::REPORT_ENTRY).unwrap();
@@ -822,6 +862,35 @@ fn perf_gtk_thread_stays_responsive() {
     let missing = details.iter().position(|text| text == "Missing").unwrap();
     assert_eq!(details[missing + 1], "1", "details pane: {details:?}");
 
+    let long_uris = (0..200)
+        .map(|i| format!("file:///tmp/{}/{i}\r\n", "x".repeat(120)))
+        .collect::<String>();
+    assert!(
+        long_uris.len() > MAX_PREVIEW_BYTES
+            && long_uris.len() < components::preview::MAX_PREVIEW_READ_BYTES
+    );
+    let entry = rsclip_core::classify::classify_payload(
+        "text/uri-list",
+        "long-files".into(),
+        long_uris.as_bytes(),
+    )
+    .unwrap();
+    let id = db.upsert_entry(&entry).unwrap();
+    let mut summary = db.get_entry(id).unwrap().unwrap();
+    summary.text_content = None;
+    components::preview::render_preview(&state, &summary);
+    pump_until(&|| {
+        label_texts(state.preview.upcast_ref())
+            .iter()
+            .any(|text| text == "200 files" || text == "200 files, 200 missing")
+    });
+    assert!(
+        label_texts(state.preview.upcast_ref())
+            .iter()
+            .any(|text| text.starts_with("200 files")),
+        "file list was cut at the text-preview limit"
+    );
+
     // Exercise the other search view and ordered rename/delete writes.
     let secret_id = db
         .save_secret(None, "fixture-secret", "synthetic-secret-value")
@@ -923,6 +992,15 @@ fn perf_gtk_thread_stays_responsive() {
     pump_until(&|| state.entries_total.get() > 0);
     assert_eq!(state.list.row_at_index(0).as_ref(), Some(&cached_row));
     assert!(state.row_cache.borrow().len() <= 128);
+    window::hide_overlay(&state, &runtime.window);
+    rsclip_core::notify::notify_favicons_changed(&paths);
+    pump_until(&|| state.row_cache.borrow().is_empty());
+    assert!(
+        state.row_cache.borrow().is_empty(),
+        "hidden favicon update left stale row widgets"
+    );
+    runtime.show_reset().unwrap();
+    settle();
     actions::refresh::rerender_current_list(&state);
     assert_ne!(state.list.row_at_index(0).as_ref(), Some(&cached_row));
     println!("row cache: reused widgets across queries and invalidated on forced rerender");

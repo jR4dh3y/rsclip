@@ -168,6 +168,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         copy_request_tx: workers.copy_request_tx,
         preview_request_tx: workers.preview_request_tx,
         clipboard_serial: Cell::new(0),
+        paste_process: RefCell::new(None),
         pending_copies: Cell::new(0),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
         history_limit: Cell::new(config.history.max_entries),
@@ -220,6 +221,12 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         currently_previewed_secret_id: Cell::new(None),
     });
     update_mode_controls(&state);
+    let shutdown_state = Rc::downgrade(&state);
+    app.connect_shutdown(move |_| {
+        if let Some(state) = shutdown_state.upgrade() {
+            advance_clipboard_serial(&state);
+        }
+    });
     crate::actions::set_footer(&state, "Loading…");
 
     crate::notify::install_change_listener(&state, &window, &paths.socket_path)?;
@@ -307,24 +314,41 @@ pub(crate) fn close_overlay_and_paste(
         let state = Rc::downgrade(state);
         gtk::glib::timeout_add_local_once(delay, move || {
             // Another copy, or reopening the overlay, cancels this paste.
-            if state
+            let Some(state) = state
                 .upgrade()
-                .is_none_or(|state| state.clipboard_serial.get() != serial)
-            {
+                .filter(|state| state.clipboard_serial.get() == serial)
+            else {
                 return;
-            }
-            // The paste tool is spawned and waited on; keep that wait (and a
-            // slow or hung tool) off the GTK thread.
-            let spawned = std::thread::Builder::new()
-                .name("rsclip-paste".to_string())
-                .spawn(move || {
-                    if let Err(err) = rsclip_core::paste::trigger_paste_with_method(&method) {
+            };
+            let process = rsclip_core::paste::paste_command(&method).and_then(|command| {
+                let args = std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .collect::<Vec<_>>();
+                gio::Subprocess::newv(&args, gio::SubprocessFlags::NONE).map_err(Into::into)
+            });
+            let process = match process {
+                Ok(process) => process,
+                Err(err) => {
+                    eprintln!("rsclip: Paste failed: {err:#}");
+                    return;
+                }
+            };
+            // Spawn and record ownership in one GTK turn; wait without blocking
+            // GTK, and kill this process whenever a later action changes serial.
+            *state.paste_process.borrow_mut() = Some(process.clone());
+            let state = Rc::downgrade(&state);
+            gtk::glib::spawn_future_local(async move {
+                let result = process.wait_check_future().await;
+                if let Some(state) = state
+                    .upgrade()
+                    .filter(|state| state.clipboard_serial.get() == serial)
+                {
+                    state.paste_process.borrow_mut().take();
+                    if let Err(err) = result {
                         eprintln!("rsclip: Paste failed: {err:#}");
                     }
-                });
-            if let Err(err) = spawned {
-                eprintln!("rsclip: Paste failed: {err}");
-            }
+                }
+            });
         });
     }
 }

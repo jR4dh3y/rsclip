@@ -129,22 +129,7 @@ impl IndraOcr {
 
     /// Decode PNG, JPEG, WebP or ICO from disk with image crate resource limits.
     pub fn recognize_file(&mut self, path: impl AsRef<Path>) -> Result<Vec<Line>> {
-        let path = path.as_ref();
-        let mut reader = ImageReader::open(path)?.with_guessed_format()?;
-        let mut limits = image::Limits::default();
-        limits.max_image_width = Some(16_384);
-        limits.max_image_height = Some(16_384);
-        reader.limits(limits);
-        let rgba = reader
-            .decode()
-            .with_context(|| format!("decoding {}", path.display()))?
-            .into_rgba8();
-        // Composite transparency onto white before grayscale conversion.
-        let gray = GrayImage::from_fn(rgba.width(), rgba.height(), |x, y| {
-            let [r, g, b, a] = rgba.get_pixel(x, y).0.map(u32::from);
-            let luma = (299 * r + 587 * g + 114 * b + 500) / 1000;
-            image::Luma([((luma * a + 255 * (255 - a) + 127) / 255) as u8])
-        });
+        let gray = read_image(path.as_ref())?;
         self.recognize(&gray)
     }
 
@@ -167,6 +152,31 @@ impl IndraOcr {
         self.sort_lines(&mut lines, gray.dimensions())?;
         Ok(lines)
     }
+}
+
+/// Decode and bound image allocation before model inference.
+fn read_image(path: &Path) -> Result<GrayImage> {
+    let mut reader = ImageReader::open(path)?.with_guessed_format()?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16_384);
+    limits.max_image_height = Some(16_384);
+    reader.limits(limits);
+    let decoder = reader.into_decoder()?;
+    let (width, height) = image::ImageDecoder::dimensions(&decoder);
+    ensure!(
+        u64::from(width) * u64::from(height) <= 100_000_000,
+        "image exceeds 100 megapixels"
+    );
+    let rgba = image::DynamicImage::from_decoder(decoder)
+        .with_context(|| format!("decoding {}", path.display()))?
+        .into_rgba8();
+    // Composite transparency onto white before grayscale conversion.
+    let gray = GrayImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let [r, g, b, a] = rgba.get_pixel(x, y).0.map(u32::from);
+        let luma = (299 * r + 587 * g + 114 * b + 500) / 1000;
+        image::Luma([((luma * a + 255 * (255 - a) + 127) / 255) as u8])
+    });
+    Ok(gray)
 }
 
 fn load_session(env: &Environment, path: &Path, threads: usize) -> Result<Session> {
@@ -230,6 +240,35 @@ pub fn plain_text(lines: &[Line]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rejects_oversized_image_before_decoding_pixels() {
+        let path = std::env::temp_dir().join(format!("rsclip-size-{}.png", std::process::id()));
+        GrayImage::from_pixel(2, 2, image::Luma([128]))
+            .save(&path)
+            .unwrap();
+        assert_eq!(read_image(&path).unwrap().dimensions(), (2, 2));
+        let mut png = std::fs::read(&path).unwrap();
+        // Change only IHDR and its CRC. The tiny compressed pixel stream is
+        // deliberately invalid for the new dimensions and must never decode.
+        png[16..20].copy_from_slice(&12_000_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&12_000_u32.to_be_bytes());
+        let mut crc = !0_u32;
+        for byte in &png[12..29] {
+            crc ^= u32::from(*byte);
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb88320 & (0_u32.wrapping_sub(crc & 1)));
+            }
+        }
+        png[29..33].copy_from_slice(&(!crc).to_be_bytes());
+        std::fs::write(&path, png).unwrap();
+        let error = read_image(&path).unwrap_err();
+        assert!(
+            error.to_string().contains("image exceeds 100 megapixels"),
+            "{error:#}"
+        );
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn removes_overlapping_glyph_fragment_but_keeps_separate_repeated_text() {
