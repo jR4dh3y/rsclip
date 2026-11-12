@@ -5,6 +5,7 @@ mod ocr;
 mod paste;
 mod pin;
 mod store;
+mod ui;
 
 use anyhow::{Result, bail};
 
@@ -18,6 +19,7 @@ pub fn run(args: &[String]) -> Result<()> {
         Some("paste") => paste::run(&args[1..]),
         Some("ocr") => ocr::run(&args[1..]),
         Some("favicons") => favicons::run(&args[1..]),
+        Some(command @ ("toggle" | "show")) => ui::run(command),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -32,6 +34,8 @@ fn print_help() {
 
 Commands:
   watch                              Start wl-paste watchers
+  toggle                             Toggle the clipboard UI (fastest hotkey command)
+  show                               Show the clipboard UI
   store --mime text/plain            Store stdin as a clipboard entry
   list [--json] [--query <q>] [--filter <filter>] [--sort <sort>] [--limit <n>]
                                       List history (filter: all|text|images|files|links|colors|pinned;

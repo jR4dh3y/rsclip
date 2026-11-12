@@ -1,4 +1,5 @@
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 
 use anyhow::Result;
 use gtk4::prelude::*;
@@ -19,17 +20,58 @@ const MIN_VISIBLE_ROWS: usize = 20;
 // Keep two full viewports on each side so fast arrow navigation stays within the rendered window.
 const WINDOW_PADDING_ROWS: usize = 50;
 
+/// Queue a fresh list window and discard any selection from the previous query.
 pub(crate) fn refresh_entries(state: &Rc<AppState>) -> Result<()> {
     state.pending_selection.set(None);
+    refresh_entries_with_pending_selection(state)
+}
+
+/// Queue the first result window while retaining a pending selection from an overlay reopen.
+pub(crate) fn refresh_entries_with_pending_selection(state: &Rc<AppState>) -> Result<()> {
     let generation = crate::state::advance_list_generation(state);
     queue_window(state, generation, 0, 0, false, None)
 }
 
+/// Put the currently cached list back at its first row when the overlay is
+/// shown again. Returns `true` when the first row is not cached and a refresh
+/// is needed to materialize it.
+pub(crate) fn reset_list_position(state: &Rc<AppState>) -> bool {
+    state
+        .list_adjustment
+        .set_value(state.list_adjustment.lower());
+
+    let total = current_total(state);
+    if total == 0 {
+        state.pending_selection.set(None);
+        return false;
+    }
+
+    let start = current_start(state);
+    let len = current_len(state);
+    if start > 0 || len == 0 {
+        state.pending_selection.set(Some(0));
+        return true;
+    }
+
+    state.pending_selection.set(None);
+    let row_index = match *state.view.borrow() {
+        AppView::Clipboard => row_index_for_entry(state, 0),
+        AppView::Secrets => row_index_for_secret(state, 0),
+    };
+    if let Some(row) = row_index.and_then(|index| state.list.row_at_index(index)) {
+        state.list.select_row(Some(&row));
+        schedule_preview_for_current_selection(state);
+    }
+    false
+}
+
+/// Refresh the current list window without moving the selected global index.
 pub(crate) fn refresh_entries_preserving_selection(state: &Rc<AppState>) -> Result<()> {
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
     refresh_entries_at_index(state, selected_index)
 }
 
+/// Load a window centered on `target_index` and preserve its requested selection.
 pub(crate) fn refresh_entries_at_index(state: &Rc<AppState>, target_index: usize) -> Result<()> {
     state.pending_selection.set(None);
     let generation = crate::state::advance_list_generation(state);
@@ -51,6 +93,7 @@ pub(crate) fn current_selected_index(state: &Rc<AppState>) -> usize {
 
 pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
     // Row content itself changed (favicons, config): rebuild every row.
+    state.row_cache.borrow_mut().clear();
     state.rendered_rows.borrow_mut().clear();
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
     match *state.view.borrow() {
@@ -65,6 +108,7 @@ pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
 /// ~120-row window per fetch cost ~35 ms of GTK time. Swapping only the link
 /// rows' content keeps every row, its selection, and the scroll position.
 pub(crate) fn rerender_link_rows(state: &Rc<AppState>) {
+    state.row_cache.borrow_mut().clear();
     if *state.view.borrow() != AppView::Clipboard {
         return;
     }
@@ -114,7 +158,7 @@ pub(crate) fn refresh_window_for_scroll(state: &Rc<AppState>) -> Result<()> {
     // Crucial: do not advance generation for smooth scroll window shifts.
     queue_window(
         state,
-        state.list_generation.get(),
+        state.list_generation.load(Ordering::Relaxed),
         normalized_start,
         selected_index,
         true,
@@ -169,7 +213,7 @@ pub(crate) fn ensure_row_rendered(state: &Rc<AppState>, index: usize) -> Result<
     // or discard in-flight list responses.
     queue_window(
         state,
-        state.list_generation.get(),
+        state.list_generation.load(Ordering::Relaxed),
         index.saturating_sub(WINDOW_PADDING_ROWS),
         index,
         true,
@@ -188,11 +232,16 @@ fn queue_window(
     let query = state.query.borrow().clone();
     let filter = *state.filter.borrow();
     let sort = *state.sort.borrow();
-    let (requested_start, row_limit) = fetch_window(
+    let (requested_start, mut row_limit) = fetch_window(
         requested_start,
         current_total(state),
         visible_row_count(state),
     );
+    // First presentation needs one viewport and a little lookahead. Scroll
+    // and selection reloads still use the full window to absorb key repeat.
+    if !preserve_scroll && requested_start == 0 && selected_index == 0 {
+        row_limit = search_window_row_count(state);
+    }
     crate::events::queue_list(
         state,
         crate::state::ListRequest {
@@ -222,6 +271,13 @@ pub(crate) fn resolve_window_selection(
         .or(Some(request_selection))
 }
 
+fn preferred_live_selection(
+    pending_selection: Option<usize>,
+    current_selection: Option<usize>,
+) -> Option<usize> {
+    pending_selection.or(current_selection)
+}
+
 /// Replace the visible clipboard window with a completed worker result.
 pub(crate) fn apply_clipboard_search_results(
     state: &Rc<AppState>,
@@ -230,10 +286,8 @@ pub(crate) fn apply_clipboard_search_results(
     start: usize,
     entries: Vec<ClipboardEntry>,
 ) {
-    let live_selection = state
-        .pending_selection
-        .take()
-        .or_else(|| current_entry_index(state));
+    let live_selection =
+        preferred_live_selection(state.pending_selection.take(), current_entry_index(state));
     state.secrets.borrow_mut().clear();
     state.secrets_start.set(0);
     state.secrets_total.set(0);
@@ -257,10 +311,8 @@ pub(crate) fn apply_secret_search_results(
     start: usize,
     secrets: Vec<SecretEntry>,
 ) {
-    let live_selection = state
-        .pending_selection
-        .take()
-        .or_else(|| current_secret_index(state));
+    let live_selection =
+        preferred_live_selection(state.pending_selection.take(), current_secret_index(state));
     state.entries.borrow_mut().clear();
     state.entries_start.set(0);
     state.entries_total.set(0);
@@ -470,7 +522,7 @@ fn plan_row_reuse(old: &[RowKey], new: &[RowKey]) -> Vec<Option<usize>> {
     let mut old_index: std::collections::HashMap<RowKey, usize> = old
         .iter()
         .enumerate()
-        .map(|(index, key)| (*key, index))
+        .map(|(index, key)| (key.clone(), index))
         .collect();
     new.iter().map(|key| old_index.remove(key)).collect()
 }
@@ -487,6 +539,25 @@ fn render_rows(
     keys: Vec<RowKey>,
     make_row: impl Fn(usize) -> gtk4::ListBoxRow,
 ) {
+    // Keep a bounded working set across queries, not just the overlapping
+    // rows of the immediately previous query. Widgets have no state callbacks.
+    let cached_row = |index: usize| {
+        let key = keys[index].clone();
+        let mut cache = state.row_cache.borrow_mut();
+        let row = cache
+            .iter()
+            .position(|(cached_key, _)| *cached_key == key)
+            .and_then(|index| cache.remove(index))
+            .map(|(_, row)| row)
+            .unwrap_or_else(|| make_row(index));
+        row.unset_state_flags(gtk4::StateFlags::SELECTED);
+        row.remove_css_class("selected-entry");
+        cache.push_back((key, row.clone()));
+        if cache.len() > 128 {
+            cache.pop_front();
+        }
+        row
+    };
     let list = &state.list;
     let old = state.rendered_rows.replace(Vec::new());
     let is_spacer = |child: &gtk4::Widget| child.has_css_class("virtual-spacer-row");
@@ -511,10 +582,10 @@ fn render_rows(
                 }
             }
             for index in (0..shift.add_front).rev() {
-                list.prepend(&make_row(index));
+                list.prepend(&cached_row(index));
             }
             for index in keys.len() - shift.add_back..keys.len() {
-                list.append(&make_row(index));
+                list.append(&cached_row(index));
             }
         }
         None => {
@@ -536,7 +607,7 @@ fn render_rows(
             for (index, reuse) in plan_row_reuse(&old, &keys).into_iter().enumerate() {
                 let row = reuse
                     .and_then(|old_index| old_rows.get_mut(old_index)?.take())
-                    .unwrap_or_else(|| make_row(index));
+                    .unwrap_or_else(|| cached_row(index));
                 list.append(&row);
             }
         }
@@ -749,7 +820,7 @@ fn update_secret_footer(state: &Rc<AppState>) {
     if state.show_footer_hints.get() {
         set_footer(
             state,
-            "Tab: switch tab | Enter: copy | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
+            "Tab: switch tab | Enter: paste | Ctrl+C: copy | Ctrl+E: rename | Ctrl+D: delete | Esc: close",
         );
     } else {
         set_footer(state, "");
@@ -760,8 +831,8 @@ fn update_secret_footer(state: &Rc<AppState>) {
 mod tests {
     use super::{
         RowShift, WINDOW_PADDING_ROWS, clamp_window_index, fetch_window, normalized_window_start,
-        plan_row_reuse, plan_row_shift, resolve_window_selection, scroll_reload_start,
-        window_row_count_for,
+        plan_row_reuse, plan_row_shift, preferred_live_selection, resolve_window_selection,
+        scroll_reload_start, window_row_count_for,
     };
     use crate::state::RowKey;
 
@@ -773,7 +844,7 @@ mod tests {
     fn apply(old: &[RowKey], new: &[RowKey], shift: RowShift) -> Vec<RowKey> {
         let mut rows = old[shift.drop_front..old.len() - shift.drop_back].to_vec();
         for index in (0..shift.add_front).rev() {
-            rows.insert(0, new[index]);
+            rows.insert(0, new[index].clone());
         }
         rows.extend_from_slice(&new[new.len() - shift.add_back..]);
         rows
@@ -886,6 +957,12 @@ mod tests {
         assert_eq!(resolve_window_selection(Some(150), 36, 0, 100), Some(36));
         // If there was no live selection, fall back to request_selection.
         assert_eq!(resolve_window_selection(None, 36, 0, 100), Some(36));
+    }
+
+    #[test]
+    fn pending_reopen_selection_wins_over_stale_live_selection() {
+        assert_eq!(preferred_live_selection(Some(0), Some(90)), Some(0));
+        assert_eq!(preferred_live_selection(None, Some(90)), Some(90));
     }
 
     #[test]

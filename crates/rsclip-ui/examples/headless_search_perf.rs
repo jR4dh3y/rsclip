@@ -374,8 +374,8 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn all_summaries(state: &Rc<AppState>) -> Vec<ClipboardEntry> {
-    state
-        .db
+    rsclip_core::Database::open(&state.db_path)
+        .unwrap()
         .list_entry_summaries_page("", EntryFilter::All, SortMode::Default, 100_000, 0)
         .unwrap()
 }

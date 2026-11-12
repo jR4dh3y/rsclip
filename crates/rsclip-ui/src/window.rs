@@ -6,12 +6,12 @@ use gio::prelude::*;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use rsclip_core::models::{EntryFilter, SortMode};
-use rsclip_core::{AppConfig, Database, RsclipPaths};
+use rsclip_core::{AppConfig, RsclipPaths};
 
-use crate::actions::refresh::refresh_entries;
+use crate::actions::refresh::{refresh_entries, refresh_entries_with_pending_selection};
 use crate::actions::update_mode_controls;
 use crate::components::{footer, list, preview, topbar};
-use crate::state::{AppState, AppView, advance_clipboard_serial};
+use crate::state::{AppState, AppView, advance_clipboard_serial, advance_overlay_generation};
 
 pub(crate) struct UiRuntime {
     pub(crate) state: Rc<AppState>,
@@ -28,60 +28,74 @@ impl UiRuntime {
         refresh_entries(&self.state)
     }
 
+    /// Reset the overlay to its configured view and schedule any required list refresh.
     pub(crate) fn show_reset(&self) -> Result<()> {
-        use gtk4_layer_shell::{KeyboardMode, LayerShell};
-
-        let mut needs_refresh = false;
-        if self.state.reset_on_show.get() {
-            let view_changed = *self.state.view.borrow() != self.state.default_view.get();
-            let query_changed = !self.state.query.borrow().is_empty();
-            let filter_changed = *self.state.filter.borrow() != self.state.default_filter.get();
-            let sort_changed = *self.state.sort.borrow() != self.state.default_sort.get();
-
-            *self.state.view.borrow_mut() = self.state.default_view.get();
-            *self.state.query.borrow_mut() = String::new();
-            *self.state.filter.borrow_mut() = self.state.default_filter.get();
-            *self.state.sort.borrow_mut() = self.state.default_sort.get();
-            if query_changed {
-                self.state.search_entry.set_text("");
-            }
-
-            needs_refresh = view_changed || query_changed || filter_changed || sort_changed;
-        }
-
-        sync_topbar_from_state(&self.state);
-        update_mode_controls(&self.state);
-
-        // A paste still waiting on its delay must not land in the overlay.
-        advance_clipboard_serial(&self.state);
-        self.window.set_keyboard_mode(KeyboardMode::Exclusive);
-        self.window.set_visible(true);
-        self.window.present();
-        if self.state.auto_focus_search.get() {
-            self.state.search_entry.grab_focus();
-        }
-
-        let is_empty = match *self.state.view.borrow() {
-            AppView::Clipboard => self.state.entries.borrow().is_empty(),
-            AppView::Secrets => self.state.secrets.borrow().is_empty(),
-        };
-        if needs_refresh || is_empty {
-            refresh_entries_after_present(&self.state);
-        }
+        show_overlay(&self.state, &self.window);
         Ok(())
     }
 
     pub(crate) fn toggle(&self) -> Result<()> {
-        if self.window.is_visible() {
-            self.hide();
-            Ok(())
-        } else {
-            self.show_reset()
+        toggle_overlay(&self.state, &self.window);
+        Ok(())
+    }
+}
+
+/// Hide the overlay if it is visible, otherwise show it.
+pub(crate) fn toggle_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
+    if window.is_visible() {
+        hide_overlay(state, window);
+    } else {
+        show_overlay(state, window);
+    }
+}
+
+/// Reset the overlay to its configured view, present it, and schedule any
+/// required list refresh.
+pub(crate) fn show_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
+    use gtk4_layer_shell::{KeyboardMode, LayerShell};
+    let overlay_generation = advance_overlay_generation(state);
+
+    let mut needs_refresh = false;
+    if state.reset_on_show.get() {
+        let view_changed = *state.view.borrow() != state.default_view.get();
+        let query_changed = !state.query.borrow().is_empty();
+        let filter_changed = *state.filter.borrow() != state.default_filter.get();
+        let sort_changed = *state.sort.borrow() != state.default_sort.get();
+
+        *state.view.borrow_mut() = state.default_view.get();
+        *state.query.borrow_mut() = String::new();
+        *state.filter.borrow_mut() = state.default_filter.get();
+        *state.sort.borrow_mut() = state.default_sort.get();
+        if query_changed {
+            state.search_entry.set_text("");
         }
+
+        needs_refresh = view_changed || query_changed || filter_changed || sort_changed;
     }
 
-    pub(crate) fn hide(&self) {
-        hide_overlay(&self.state, &self.window);
+    sync_topbar_from_state(state);
+    update_mode_controls(state);
+
+    // A hidden overlay keeps its ListBox adjustment and selected row.
+    // Reopening after pasting should start at the first result instead of
+    // reopening at the row that was just used.
+    let top_refresh = crate::actions::refresh::reset_list_position(state);
+
+    // A paste still waiting on its delay must not land in the overlay.
+    advance_clipboard_serial(state);
+    window.set_keyboard_mode(KeyboardMode::Exclusive);
+    window.set_visible(true);
+    window.present();
+    if state.auto_focus_search.get() {
+        state.search_entry.grab_focus();
+    }
+
+    let is_empty = match *state.view.borrow() {
+        AppView::Clipboard => state.entries.borrow().is_empty(),
+        AppView::Secrets => state.secrets.borrow().is_empty(),
+    };
+    if needs_refresh || top_refresh || is_empty {
+        refresh_entries_after_present(state, top_refresh, overlay_generation);
     }
 }
 
@@ -89,7 +103,6 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     let paths = RsclipPaths::discover()?;
     paths.ensure()?;
     let config = AppConfig::load(&paths)?;
-    let db = Database::open(&paths.db_path)?;
     let workers = crate::events::start_workers(paths.db_path.clone())?;
 
     crate::style::load_css(&config)?;
@@ -147,12 +160,15 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
     shell.append(&footer_bar.container);
 
     let state = Rc::new(AppState {
-        db,
+        db_path: paths.db_path.clone(),
         list_request_tx: workers.list_request_tx,
         list_response_rx: workers.response_rx,
-        list_generation: Cell::new(0),
+        list_generation: workers.list_generation,
+        overlay_generation: Cell::new(0),
         copy_request_tx: workers.copy_request_tx,
+        preview_request_tx: workers.preview_request_tx,
         clipboard_serial: Cell::new(0),
+        paste_process: RefCell::new(None),
         pending_copies: Cell::new(0),
         favicon_icon_dir: paths.favicon_icon_dir.clone(),
         history_limit: Cell::new(config.history.max_entries),
@@ -179,6 +195,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         secrets_total: Cell::new(0),
         pending_selection: Cell::new(None),
         rendered_rows: RefCell::new(Vec::new()),
+        row_cache: RefCell::new(std::collections::VecDeque::new()),
         virtual_list_update: Cell::new(false),
         query: RefCell::new(String::new()),
         filter: RefCell::new(default_filter),
@@ -204,6 +221,13 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         currently_previewed_secret_id: Cell::new(None),
     });
     update_mode_controls(&state);
+    let shutdown_state = Rc::downgrade(&state);
+    app.connect_shutdown(move |_| {
+        if let Some(state) = shutdown_state.upgrade() {
+            advance_clipboard_serial(&state);
+        }
+    });
+    crate::actions::set_footer(&state, "Loading…");
 
     crate::notify::install_change_listener(&state, &window, &paths.socket_path)?;
     let config_monitor = crate::config_reload::install_config_watcher(&state, &window, &paths)?;
@@ -239,18 +263,32 @@ fn configure_overlay_window(window: &gtk::ApplicationWindow, config: &AppConfig)
     window.set_anchor(Edge::Bottom, false);
 }
 
-fn refresh_entries_after_present(state: &Rc<AppState>) {
+fn refresh_entries_after_present(
+    state: &Rc<AppState>,
+    preserve_pending_selection: bool,
+    overlay_generation: u64,
+) {
     let state = Rc::clone(state);
     gtk::glib::idle_add_local_once(move || {
-        if let Err(err) = refresh_entries(&state) {
+        if state.overlay_generation.get() != overlay_generation {
+            return;
+        }
+        let refresh = if preserve_pending_selection {
+            refresh_entries_with_pending_selection(&state)
+        } else {
+            refresh_entries(&state)
+        };
+        if let Err(err) = refresh {
             crate::actions::set_footer(&state, &format!("Refresh failed: {err:#}"));
         }
     });
 }
 
+/// Hide the overlay and invalidate work scheduled for its presentation.
 pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
     use gtk4_layer_shell::{KeyboardMode, LayerShell};
 
+    advance_overlay_generation(state);
     window.set_keyboard_mode(KeyboardMode::None);
     window.set_visible(false);
     advance_clipboard_serial(state);
@@ -260,25 +298,57 @@ pub(crate) fn hide_overlay(state: &Rc<AppState>, window: &gtk::ApplicationWindow
     }
 }
 
-pub(crate) fn close_overlay_and_paste(state: &Rc<AppState>, window: &gtk::ApplicationWindow) {
+/// Hide the overlay and optionally paste the most recently copied value after
+/// the configured delay.
+pub(crate) fn close_overlay_and_paste(
+    state: &Rc<AppState>,
+    window: &gtk::ApplicationWindow,
+    force_paste: bool,
+) {
     hide_overlay(state, window);
 
-    if state.auto_paste.get() {
+    if force_paste || state.auto_paste.get() {
         let delay = std::time::Duration::from_millis(state.paste_delay_ms.get());
         let method = state.paste_method.borrow().clone();
         let serial = state.clipboard_serial.get();
         let state = Rc::downgrade(state);
         gtk::glib::timeout_add_local_once(delay, move || {
             // Another copy, or reopening the overlay, cancels this paste.
-            if state
+            let Some(state) = state
                 .upgrade()
-                .is_none_or(|state| state.clipboard_serial.get() != serial)
-            {
+                .filter(|state| state.clipboard_serial.get() == serial)
+            else {
                 return;
-            }
-            if let Err(err) = rsclip_core::paste::trigger_paste_with_method(&method) {
-                eprintln!("rsclip: Paste failed: {err:#}");
-            }
+            };
+            let process = rsclip_core::paste::paste_command(&method).and_then(|command| {
+                let args = std::iter::once(command.get_program())
+                    .chain(command.get_args())
+                    .collect::<Vec<_>>();
+                gio::Subprocess::newv(&args, gio::SubprocessFlags::NONE).map_err(Into::into)
+            });
+            let process = match process {
+                Ok(process) => process,
+                Err(err) => {
+                    eprintln!("rsclip: Paste failed: {err:#}");
+                    return;
+                }
+            };
+            // Spawn and record ownership in one GTK turn; wait without blocking
+            // GTK, and kill this process whenever a later action changes serial.
+            *state.paste_process.borrow_mut() = Some(process.clone());
+            let state = Rc::downgrade(&state);
+            gtk::glib::spawn_future_local(async move {
+                let result = process.wait_check_future().await;
+                if let Some(state) = state
+                    .upgrade()
+                    .filter(|state| state.clipboard_serial.get() == serial)
+                {
+                    state.paste_process.borrow_mut().take();
+                    if let Err(err) = result {
+                        eprintln!("rsclip: Paste failed: {err:#}");
+                    }
+                }
+            });
         });
     }
 }

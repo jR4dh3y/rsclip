@@ -61,6 +61,8 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use rusqlite::OptionalExtension;
+
     use crate::models::{
         ClipboardEntry, EntryData, EntryFilter, EntryKind, NewEntry, NewEntryData, SortMode,
     };
@@ -1182,6 +1184,32 @@ mod tests {
             )
             .unwrap();
         assert!(plan.contains("idx_entries_pinned_updated"), "{plan}");
+
+        drop(db);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+    }
+    /// Existing v5 databases must receive indexes introduced after v1.
+    #[test]
+    fn migration_v6_adds_secret_value_index_to_existing_database() {
+        let path = temp_db_path();
+        let db = Database::open(&path).unwrap();
+        db.conn.execute("DROP INDEX idx_secrets_value", []).unwrap();
+        db.conn.pragma_update(None, "user_version", 5).unwrap();
+
+        db.migrate().unwrap();
+
+        let index: Option<String> = db
+            .conn
+            .query_row(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_secrets_value'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+        assert_eq!(index.as_deref(), Some("idx_secrets_value"));
 
         drop(db);
         let _ = std::fs::remove_file(&path);

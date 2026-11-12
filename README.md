@@ -127,6 +127,16 @@ rsclip quit-ui      # stop the resident UI process
 rsclip list         # print history from SQLite without starting GTK
 ```
 
+For a compositor key binding, prefer `rsclipd toggle` (or `rsclipd show`). It sends the
+request straight to the resident UI's socket and exits in about 2 ms; `rsclip toggle`
+does the same thing but first loads GTK, which costs roughly 25 ms per key press. Both
+start the resident UI if it is not running yet.
+
+```bash
+rsclipd toggle      # fastest way to toggle the resident UI from a hotkey
+rsclipd show
+```
+
 Options for `rsclip list` and `rsclipd list`:
 - `--query <q>`: Filter by search query
 - `--filter <filter>`: `all`, `text`, `images`, `files`, `links`, `colors`, `pinned`
@@ -156,8 +166,8 @@ The resident GTK overlay supports keyboard navigation and shortcuts:
 | Key | Action |
 | --- | --- |
 | `Tab` | Switch between Clipboard and Secrets view |
-| `Enter` | Paste entry (Clipboard) / Copy secret (Secrets) and close overlay |
-| `Ctrl+Enter` | Copy entry to clipboard without auto-pasting and close overlay |
+| `Enter` | Paste selected entry or secret into the previously focused app and close overlay |
+| `Ctrl+Enter` | Copy entry to clipboard without pasting and close overlay |
 | `Ctrl+C` | Copy selected entry or secret to clipboard |
 | `Ctrl+P` | Toggle pin on selected clipboard entry |
 | `Ctrl+D` | Delete selected entry or secret (preserves current list position) |
@@ -219,6 +229,10 @@ paste_delay_ms = 140
 method = "wtype"
 ```
 
+The overlay's `Enter` action always restores the selected value and sends
+`Ctrl+V` to the previously focused application. `Ctrl+Enter` and `Ctrl+C`
+remain copy-only actions; `auto_paste` controls the command-line paste flow.
+
 OCR defaults are shared by the UI button and `rsclipd ocr`:
 
 ```toml
@@ -229,6 +243,10 @@ default_language = "eng"
 timeout_seconds = 20
 auto_index = false
 ```
+
+For Python-free Indra OCR through Rust ONNX Runtime bindings, install the optional
+[`rsclip-ocr` backend](crates/rsclip-indra-ocr/README.md) and set
+`command = "rsclip-ocr"`. It uses the same UI, CLI and automatic indexing paths.
 
 The resident UI also supports geometry and behavior settings:
 
@@ -299,7 +317,15 @@ hit before. `scripts/build-release-archive.sh` and CI run them on every build.
   slow down when 48 MB of legacy payloads are added.
 - `rsclip-ui`: holding an arrow key through 5,000 entries never strands the
   selection outside the loaded window, reloads stay rare, and each row is built
-  about once. Search starts at most 100 ms after the last keystroke.
+  about once. Search has an 8 ms debounce with a 16 ms configured-delay budget.
+  Obsolete scans cancel cooperatively without interrupting ordered writes.
+
+The UI opens SQLite and reads text previews on background workers. Its first
+list is smaller than the scrolling window, and GtkSourceView is created on
+first code selection. The headless UI harness reports startup and query-to-paint
+timings, checks stale previews, and exercises search during an OCR write lock.
+Run it with `cargo test --release -p rsclip-ui --test headless_ui_perf`.
+For measured improvements and remaining stalls, see [the hillclimb results](PERFORMANCE-RESULTS.md).
 
 Print every measured timing:
 

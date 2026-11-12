@@ -275,10 +275,10 @@ fn subtitle(entry: &ClipboardEntry, lang: Option<CodeLanguage>) -> String {
     }
 
     let time = relative_time(entry.updated_at);
-    if entry.kind == EntryKind::Text {
-        if let Some(lang) = lang {
-            return format!("{time} • {}", lang.display_name());
-        }
+    if entry.kind == EntryKind::Text
+        && let Some(lang) = lang
+    {
+        return format!("{time} • {}", lang.display_name());
     }
 
     time

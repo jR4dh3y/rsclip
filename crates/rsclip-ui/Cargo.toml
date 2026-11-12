@@ -21,6 +21,9 @@ sourceview5.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[dev-dependencies]
+rusqlite.workspace = true
+
 
 # Drives the real window on a private headless compositor. Runs without the
 # libtest harness so the UI modules it includes via #[path] don't bring their

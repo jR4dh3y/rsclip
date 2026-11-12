@@ -88,22 +88,26 @@ pub fn trigger_paste() -> Result<()> {
 
 /// Triggers a paste key combination using the configured method (e.g. "wtype").
 pub fn trigger_paste_with_method(method: &str) -> Result<()> {
+    let status = paste_command(method)?
+        .status()
+        .context("running paste tool")?;
+    if !status.success() {
+        bail!("paste tool exited with {status}");
+    }
+    Ok(())
+}
+
+/// Build the paste command so UI callers can own and cancel its process.
+pub fn paste_command(method: &str) -> Result<Command> {
     match method.trim() {
-        "wtype" => trigger_paste_wtype(),
+        "wtype" => {
+            let mut command = Command::new("wtype");
+            command.args(["-M", "ctrl", "v", "-m", "ctrl"]);
+            Ok(command)
+        }
         "" => bail!("paste method is empty"),
         other => bail!("unsupported paste method '{other}'; supported method: wtype"),
     }
-}
-
-fn trigger_paste_wtype() -> Result<()> {
-    let status = Command::new("wtype")
-        .args(["-M", "ctrl", "v", "-m", "ctrl"])
-        .status()
-        .context("spawning wtype")?;
-    if !status.success() {
-        bail!("wtype exited with {status}");
-    }
-    Ok(())
 }
 
 #[cfg(test)]

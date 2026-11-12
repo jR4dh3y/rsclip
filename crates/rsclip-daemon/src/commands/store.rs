@@ -38,6 +38,13 @@ pub fn run(args: &[String]) -> Result<()> {
         info!("skipping text/plain duplicate for recent file clipboard entry");
         return Ok(());
     }
+    if should_skip_secret_payload(mime_type, &payload, &db)? {
+        // Copying a secret is expected to make it available to the target
+        // application, but it must not turn the secret back into a normal
+        // clipboard-history entry through the daemon's wl-paste watcher.
+        info!("skipping clipboard payload that matches a saved secret");
+        return Ok(());
+    }
 
     let hash = content_hash(&payload);
     let entry_hash = if config.history.dedupe {
@@ -95,6 +102,18 @@ pub fn run(args: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Returns whether a text payload is an active saved secret and should be
+/// excluded from ordinary clipboard history.
+fn should_skip_secret_payload(mime_type: &str, payload: &[u8], db: &Database) -> Result<bool> {
+    if mime_type != "text/plain" {
+        return Ok(false);
+    }
+    let Ok(value) = std::str::from_utf8(payload) else {
+        return Ok(false);
+    };
+    db.has_active_secret_value(value)
+}
+
 fn should_skip_text_file_duplicate(mime_type: &str, payload: &[u8], db: &Database) -> Result<bool> {
     if mime_type != "text/plain" {
         return Ok(false);
@@ -146,9 +165,12 @@ fn unique_entry_hash(hash: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use rsclip_core::AppConfig;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::payload_limit;
+    use rsclip_core::AppConfig;
+    use rsclip_core::Database;
+
+    use super::{payload_limit, should_skip_secret_payload};
 
     #[test]
     fn payload_limits_preserve_zero_as_the_unlimited_sentinel() {
@@ -168,5 +190,27 @@ mod tests {
 
         assert_eq!(payload_limit("text/plain", &config), Some(1024));
         assert_eq!(payload_limit("image/png", &config), Some(2048));
+    }
+
+    #[test]
+    fn saved_secret_payloads_are_not_reinserted_into_history() {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "rsclip-daemon-secret-test-{}-{suffix}.sqlite",
+            std::process::id()
+        ));
+        let db = Database::open(&path).unwrap();
+        db.save_secret(None, "token", "secret-value").unwrap();
+
+        assert!(should_skip_secret_payload("text/plain", b"secret-value", &db).unwrap());
+        assert!(!should_skip_secret_payload("text/plain", b"other", &db).unwrap());
+        assert!(!should_skip_secret_payload("image/png", b"secret-value", &db).unwrap());
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("sqlite-wal"));
+        let _ = std::fs::remove_file(path.with_extension("sqlite-shm"));
     }
 }

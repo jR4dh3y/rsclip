@@ -1,7 +1,8 @@
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::path::PathBuf;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, mpsc};
 
 use anyhow::Context;
 use gtk::prelude::*;
@@ -19,14 +20,15 @@ pub(crate) enum AppView {
 /// Identity of a rendered list row: equal keys render identical widgets, so
 /// window shifts and new queries can keep those rows instead of rebuilding
 /// them. `age` is the relative time the row shows, so a kept row never keeps
-/// an outdated "5 min".
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// an outdated "5 min". Labels also distinguish edits within one timestamp tick.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct RowKey {
     view: AppView,
     id: i64,
     updated_at: i64,
     age: RelativeAge,
     pinned: bool,
+    label: String,
 }
 
 impl RowKey {
@@ -37,6 +39,7 @@ impl RowKey {
             updated_at: entry.updated_at,
             age: relative_age(entry.updated_at),
             pinned: entry.pinned,
+            label: entry.title.clone(),
         }
     }
 
@@ -47,6 +50,7 @@ impl RowKey {
             updated_at: secret.updated_at,
             age: relative_age(secret.updated_at),
             pinned: false,
+            label: secret.alias.clone(),
         }
     }
 
@@ -58,6 +62,7 @@ impl RowKey {
             updated_at: 0,
             age: RelativeAge::Now,
             pinned: false,
+            label: String::new(),
         }
     }
 }
@@ -149,8 +154,14 @@ impl WriteOp {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AfterCopy {
     /// Close the overlay and paste (Enter, row activation).
+    #[allow(dead_code)]
     Paste,
-    /// Close the overlay without pasting (Enter on a secret).
+    /// Close the overlay and always inject Ctrl+V (explicit Enter action).
+    /// This remains distinct from [`Self::Paste`] so callers that use the
+    /// configurable copy-only behavior can keep it for background actions.
+    PasteNow,
+    /// Close the overlay without injecting a paste (copy-only action).
+    #[allow(dead_code)]
     Hide,
     /// Keep the overlay open and report the copy in the footer.
     Report {
@@ -223,42 +234,58 @@ pub(crate) struct CopyResponse {
     pub(crate) result: Result<(), String>,
 }
 
+/// Bounded preview reads use their own worker so searches and copies cannot
+/// delay the selected entry's text.
+pub(crate) struct PreviewRequest {
+    pub(crate) entry: ClipboardEntry,
+    pub(crate) generation: u64,
+}
+
+pub(crate) struct PreviewResponse {
+    pub(crate) request: PreviewRequest,
+    pub(crate) load: Result<Option<crate::components::preview::PreviewLoad>, String>,
+}
+
 /// Worker output: the newest list result and/or failures of writes applied
 /// before it (reported after the list renders so its footer cannot hide
-/// them), or a finished copy from the copy worker.
+/// them), a finished copy, or a bounded preview read.
 pub(crate) struct WorkerResponse {
     pub(crate) list: Option<ListResponse>,
     pub(crate) copy: Option<CopyResponse>,
+    pub(crate) preview: Option<PreviewResponse>,
     pub(crate) write_error: Option<String>,
 }
 
 /// Persistent preview widget channels. Content is re-filled per selection;
 /// the widget trees themselves are never torn down, so keypresses avoid
 /// widget-tree and Pango-layout rebuild costs.
-/// Bumped on every preview render (clipboard or secret). Deferred preview
-/// upgrades capture it and abort when it changes, so a slow upgrade can never
-/// land on a selection the user has already left.
 pub(crate) struct PreviewChannels {
     /// Plain-text preview: one TextView whose buffer is re-filled per selection.
     pub(crate) text: gtk::ScrolledWindow,
     pub(crate) text_buffer: gtk::TextBuffer,
-    /// Syntax-highlighted preview: persistent sourceview View/Buffer pair so
-    /// the highlighting engine's per-buffer analysis cache stays warm.
-    pub(crate) code: gtk::ScrolledWindow,
-    pub(crate) code_buffer: sourceview5::Buffer,
+    /// Build GtkSourceView only when the user first selects code.
+    pub(crate) code: OnceCell<CodePreview>,
+}
+
+pub(crate) struct CodePreview {
+    pub(crate) scroller: gtk::ScrolledWindow,
+    pub(crate) buffer: sourceview5::Buffer,
 }
 
 pub(crate) struct AppState {
-    /// Long-lived connection for writes and explicit full-entry reads.
-    pub(crate) db: Database,
+    pub(crate) db_path: PathBuf,
     pub(crate) list_request_tx: mpsc::Sender<WorkerRequest>,
     pub(crate) list_response_rx: mpsc::Receiver<WorkerResponse>,
-    pub(crate) list_generation: Cell<u64>,
+    pub(crate) list_generation: Arc<AtomicU64>,
+    /// Identifies the currently visible overlay presentation.
+    pub(crate) overlay_generation: Cell<u64>,
     pub(crate) copy_request_tx: mpsc::Sender<CopyRequest>,
+    pub(crate) preview_request_tx: mpsc::Sender<PreviewRequest>,
     /// Bumped by every clipboard write and by hiding the overlay. A queued
     /// paste only fires while it still matches, so it can never paste a
     /// later copy's value or into a session the user already closed.
     pub(crate) clipboard_serial: Cell<u64>,
+    pub(crate) paste_process: RefCell<Option<gio::Subprocess>>,
     /// Copies queued on the copy worker that GTK has not finished handling.
     pub(crate) pending_copies: Cell<usize>,
     pub(crate) favicon_icon_dir: PathBuf,
@@ -289,6 +316,7 @@ pub(crate) struct AppState {
     pub(crate) pending_selection: Cell<Option<usize>>,
     /// Keys of the entry/secret rows currently in `list`, in order (spacers excluded).
     pub(crate) rendered_rows: RefCell<Vec<RowKey>>,
+    pub(crate) row_cache: RefCell<std::collections::VecDeque<(RowKey, gtk::ListBoxRow)>>,
     pub(crate) virtual_list_update: Cell<bool>,
     pub(crate) query: RefCell<String>,
     pub(crate) filter: RefCell<EntryFilter>,
@@ -317,16 +345,28 @@ pub(crate) struct AppState {
 
 /// Invalidate queued and in-flight list work before changing its context.
 pub(crate) fn advance_list_generation(state: &AppState) -> u64 {
-    let generation = state.list_generation.get().wrapping_add(1);
-    state.list_generation.set(generation);
-    generation
+    state
+        .list_generation
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1)
 }
 
 /// Invalidate any pending paste; returns the new serial.
 pub(crate) fn advance_clipboard_serial(state: &AppState) -> u64 {
+    if let Some(process) = state.paste_process.borrow_mut().take() {
+        process.force_exit();
+    }
     let serial = state.clipboard_serial.get().wrapping_add(1);
     state.clipboard_serial.set(serial);
     serial
+}
+
+/// Invalidate callbacks belonging to an earlier overlay presentation.
+pub(crate) fn advance_overlay_generation(state: &AppState) -> u64 {
+    state
+        .overlay_generation
+        .set(state.overlay_generation.get().wrapping_add(1));
+    state.overlay_generation.get()
 }
 
 /// Return the selected list summary without reading its full payload from SQLite.

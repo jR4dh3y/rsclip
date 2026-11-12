@@ -6,7 +6,7 @@ use crate::syntax::detect_code_language;
 use super::{Database, ENTRY_TEXT_PREFIX_CHARS};
 
 /// Highest applied schema version. Add a new `if current < N` step when changing schema.
-const SCHEMA_USER_VERSION: i32 = 5;
+const SCHEMA_USER_VERSION: i32 = 6;
 
 impl Database {
     pub fn migrate(&self) -> Result<()> {
@@ -32,6 +32,9 @@ impl Database {
         }
         if current < 5 {
             self.migrate_v5()?;
+        }
+        if current < 6 {
+            self.migrate_v6()?;
         }
 
         self.conn
@@ -126,6 +129,13 @@ impl Database {
         // process holding the database makes VACUUM fail, and SQLite reuses
         // free pages for new entries anyway.
         let _ = self.conn.execute_batch("VACUUM");
+        Ok(())
+    }
+
+    /// Add the exact-value index used to discard saved-secret clipboard echoes.
+    fn migrate_v6(&self) -> Result<()> {
+        self.conn
+            .execute_batch("CREATE INDEX IF NOT EXISTS idx_secrets_value ON secrets(value);")?;
         Ok(())
     }
 
@@ -329,6 +339,7 @@ impl Database {
 
             CREATE INDEX IF NOT EXISTS idx_secrets_updated_at ON secrets(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_secrets_alias ON secrets(alias);
+            CREATE INDEX IF NOT EXISTS idx_secrets_value ON secrets(value);
             "#,
         )?;
         self.ensure_columns(
