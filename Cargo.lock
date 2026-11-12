@@ -1471,7 +1471,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-core"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "blake3",
@@ -1486,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-daemon"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "image",
@@ -1513,7 +1513,7 @@ dependencies = [
 
 [[package]]
 name = "rsclip-ui"
-version = "0.1.24"
+version = "0.1.25"
 dependencies = [
  "anyhow",
  "gdk-pixbuf",
