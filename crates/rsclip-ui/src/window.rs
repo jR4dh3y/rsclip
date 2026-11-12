@@ -194,6 +194,7 @@ pub(crate) fn build_ui(app: &gtk::Application) -> Result<UiRuntime> {
         secrets_total: Cell::new(0),
         pending_selection: Cell::new(None),
         rendered_rows: RefCell::new(Vec::new()),
+        row_cache: RefCell::new(std::collections::VecDeque::new()),
         virtual_list_update: Cell::new(false),
         query: RefCell::new(String::new()),
         filter: RefCell::new(default_filter),

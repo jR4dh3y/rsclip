@@ -846,6 +846,12 @@ fn perf_gtk_thread_stays_responsive() {
             .is_some_and(|secret| secret.alias == "renamed-fixture")
     });
     assert_eq!(state.secrets.borrow()[0].alias, "renamed-fixture");
+    assert!(
+        label_texts(state.list.upcast_ref())
+            .iter()
+            .any(|text| text == "renamed-fixture"),
+        "the renamed alias did not reach the row widget"
+    );
     state.search_entry.set_text("no-such-secret");
     pump_until(&|| state.secrets_total.get() == 0);
     assert_eq!(state.secrets_total.get(), 0);
@@ -906,6 +912,20 @@ fn perf_gtk_thread_stays_responsive() {
     println!(
         "worker integration: bounded preview, stale response, secret search/rename/delete, and OCR lock contention passed"
     );
+
+    state.search_entry.set_text("note");
+    settle();
+    let cached_row = state.list.row_at_index(0).unwrap();
+    state.search_entry.set_text("no-such-history-row");
+    pump_until(&|| state.entries_total.get() == 0);
+    assert_eq!(state.entries_total.get(), 0);
+    state.search_entry.set_text("note");
+    pump_until(&|| state.entries_total.get() > 0);
+    assert_eq!(state.list.row_at_index(0).as_ref(), Some(&cached_row));
+    assert!(state.row_cache.borrow().len() <= 128);
+    actions::refresh::rerender_current_list(&state);
+    assert_ne!(state.list.row_at_index(0).as_ref(), Some(&cached_row));
+    println!("row cache: reused widgets across queries and invalidated on forced rerender");
 
     println!("\nworst GTK main-loop dispatch per scenario (budget {budget:.0} ms)");
     for (name, worst) in &results {

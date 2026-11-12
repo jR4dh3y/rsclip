@@ -93,6 +93,7 @@ pub(crate) fn current_selected_index(state: &Rc<AppState>) -> usize {
 
 pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
     // Row content itself changed (favicons, config): rebuild every row.
+    state.row_cache.borrow_mut().clear();
     state.rendered_rows.borrow_mut().clear();
     let selected_index = selected_index(state).unwrap_or(visible_first_index(state));
     match *state.view.borrow() {
@@ -107,6 +108,7 @@ pub(crate) fn rerender_current_list(state: &Rc<AppState>) {
 /// ~120-row window per fetch cost ~35 ms of GTK time. Swapping only the link
 /// rows' content keeps every row, its selection, and the scroll position.
 pub(crate) fn rerender_link_rows(state: &Rc<AppState>) {
+    state.row_cache.borrow_mut().clear();
     if *state.view.borrow() != AppView::Clipboard {
         return;
     }
@@ -520,7 +522,7 @@ fn plan_row_reuse(old: &[RowKey], new: &[RowKey]) -> Vec<Option<usize>> {
     let mut old_index: std::collections::HashMap<RowKey, usize> = old
         .iter()
         .enumerate()
-        .map(|(index, key)| (*key, index))
+        .map(|(index, key)| (key.clone(), index))
         .collect();
     new.iter().map(|key| old_index.remove(key)).collect()
 }
@@ -537,6 +539,25 @@ fn render_rows(
     keys: Vec<RowKey>,
     make_row: impl Fn(usize) -> gtk4::ListBoxRow,
 ) {
+    // Keep a bounded working set across queries, not just the overlapping
+    // rows of the immediately previous query. Widgets have no state callbacks.
+    let cached_row = |index: usize| {
+        let key = keys[index].clone();
+        let mut cache = state.row_cache.borrow_mut();
+        let row = cache
+            .iter()
+            .position(|(cached_key, _)| *cached_key == key)
+            .and_then(|index| cache.remove(index))
+            .map(|(_, row)| row)
+            .unwrap_or_else(|| make_row(index));
+        row.unset_state_flags(gtk4::StateFlags::SELECTED);
+        row.remove_css_class("selected-entry");
+        cache.push_back((key, row.clone()));
+        if cache.len() > 128 {
+            cache.pop_front();
+        }
+        row
+    };
     let list = &state.list;
     let old = state.rendered_rows.replace(Vec::new());
     let is_spacer = |child: &gtk4::Widget| child.has_css_class("virtual-spacer-row");
@@ -561,10 +582,10 @@ fn render_rows(
                 }
             }
             for index in (0..shift.add_front).rev() {
-                list.prepend(&make_row(index));
+                list.prepend(&cached_row(index));
             }
             for index in keys.len() - shift.add_back..keys.len() {
-                list.append(&make_row(index));
+                list.append(&cached_row(index));
             }
         }
         None => {
@@ -586,7 +607,7 @@ fn render_rows(
             for (index, reuse) in plan_row_reuse(&old, &keys).into_iter().enumerate() {
                 let row = reuse
                     .and_then(|old_index| old_rows.get_mut(old_index)?.take())
-                    .unwrap_or_else(|| make_row(index));
+                    .unwrap_or_else(|| cached_row(index));
                 list.append(&row);
             }
         }
@@ -823,7 +844,7 @@ mod tests {
     fn apply(old: &[RowKey], new: &[RowKey], shift: RowShift) -> Vec<RowKey> {
         let mut rows = old[shift.drop_front..old.len() - shift.drop_back].to_vec();
         for index in (0..shift.add_front).rev() {
-            rows.insert(0, new[index]);
+            rows.insert(0, new[index].clone());
         }
         rows.extend_from_slice(&new[new.len() - shift.add_back..]);
         rows

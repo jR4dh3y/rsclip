@@ -1,5 +1,56 @@
 # Performance hillclimb
 
+## Row reuse across searches, 2026-11-10
+
+Compared uncommitted row-cache changes against `233fed9`. List rows were reused
+only when present in the immediately preceding result window. Narrowing and then
+broadening a query discarded and rebuilt recent widgets. A 128-row working set
+now retains them across queries. Row identity includes view, entry ID,
+update time, relative age, pin state and displayed label. Including the label
+prevents same-timestamp alias edits from reusing stale widgets. Config and favicon rerenders clear the
+cache; cached rows have selection styling cleared before reattachment.
+
+Three fresh release processes per version, alternating before/after,
+after/before, before/after. Each uses the same synthetic history and a private
+Weston with pixman and GTK Cairo rendering. No builds ran during timing. Values
+below are medians of each run's longest GTK dispatch in that scenario, not p95
+or p99 of all dispatches. At 40 ms between typed characters:
+
+- JSON query: 24.65 to 13.96 ms, 43% lower.
+- Log query: 24.72 to 14.11 ms, 43% lower.
+- Code query: 24.49 to 14.56 ms, 41% lower.
+- Large-payload query: 26.63 to 14.01 ms, 47% lower.
+- Broad one-character query: 11.05 to 10.89 ms.
+
+Initial result-paint latency is mostly unchanged. First-use language highlighting
+still stalls: 50.05 to 51.67 ms. Image preview was 23.75 to 24.48 ms, navigation
+24.41 to 25.97 ms. These small differences do not establish improvements or
+regressions with three observations. The main demonstrated gain is repeated
+typing through recently seen rows, with a memory tradeoff of retaining up to
+128 widgets in addition to any live rows not in that working set. Native Niri/GPU
+presentation, disk-cold behavior and production-scale memory impact were not measured.
+
+The runtime harness also verifies row object reuse across an empty query result,
+bounded cache size, and replacement after forced rerender. Existing clipboard,
+secret search/rename/delete, stale preview and OCR contention flows pass.
+Focused UI checks, strict Clippy, changed-file formatting and release build pass.
+
+Two candidates were rejected after measurement: removing the 8 ms debounce and
+shrinking the initial page. Both caused broad-query/typing or navigation
+regressions. Their runtime changes were removed. No installed binary or hotkey
+configuration was changed. Measurements were taken before committing this follow-up.
+
+Full samples, medians and executable SHA-256 hashes are in
+[PERFORMANCE-ROW-CACHE.json](PERFORMANCE-ROW-CACHE.json). Build and copy the
+`headless_ui_perf` executable for each revision before switching source trees.
+The comparison script refuses identical executable hashes:
+
+```sh
+python3 scripts/compare-ui-performance.py /path/to/before-ui-bench /path/to/after-ui-bench /tmp/rsclip-comparison --rounds 3
+```
+
+## Earlier measurements
+
 Measured 2026-11-07. Starting revision `a3b3534` on `master`, three commits behind `origin/master`. Existing OCR work was preserved. No commit, push, installation, live clipboard change, or desktop configuration change was performed.
 
 The optimized source constructs the UI about five times faster and paints search results about 2.5 times faster in the controlled headless comparison. It does not eliminate every hitch. First-use syntax highlighting and GTK layout still exceed a frame budget.

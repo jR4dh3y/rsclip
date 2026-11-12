@@ -20,14 +20,15 @@ pub(crate) enum AppView {
 /// Identity of a rendered list row: equal keys render identical widgets, so
 /// window shifts and new queries can keep those rows instead of rebuilding
 /// them. `age` is the relative time the row shows, so a kept row never keeps
-/// an outdated "5 min".
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+/// an outdated "5 min". Labels also distinguish edits within one timestamp tick.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct RowKey {
     view: AppView,
     id: i64,
     updated_at: i64,
     age: RelativeAge,
     pinned: bool,
+    label: String,
 }
 
 impl RowKey {
@@ -38,6 +39,7 @@ impl RowKey {
             updated_at: entry.updated_at,
             age: relative_age(entry.updated_at),
             pinned: entry.pinned,
+            label: entry.title.clone(),
         }
     }
 
@@ -48,6 +50,7 @@ impl RowKey {
             updated_at: secret.updated_at,
             age: relative_age(secret.updated_at),
             pinned: false,
+            label: secret.alias.clone(),
         }
     }
 
@@ -59,6 +62,7 @@ impl RowKey {
             updated_at: 0,
             age: RelativeAge::Now,
             pinned: false,
+            label: String::new(),
         }
     }
 }
@@ -311,6 +315,7 @@ pub(crate) struct AppState {
     pub(crate) pending_selection: Cell<Option<usize>>,
     /// Keys of the entry/secret rows currently in `list`, in order (spacers excluded).
     pub(crate) rendered_rows: RefCell<Vec<RowKey>>,
+    pub(crate) row_cache: RefCell<std::collections::VecDeque<(RowKey, gtk::ListBoxRow)>>,
     pub(crate) virtual_list_update: Cell<bool>,
     pub(crate) query: RefCell<String>,
     pub(crate) filter: RefCell<EntryFilter>,
